@@ -3,6 +3,13 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.4.0
+
+- Watchlist: X on a movie or show (or its Watchlist button) keeps it for later, and Home shows a Watchlist row. Signed in to Plex, it's your Plex watchlist, so it matches every Plex app.
+- Collections: Plex collections show up in Lightcone, you can make your own (Collections… on any movie or show), and Lightcone groups titles by genre and decade. X in Movies or Shows switches to collections; Home has a Collections row.
+- Music is optional: Settings → Library → Music off removes the Music tab and keeps music out of Home and search. Movies and TV come first.
+- Detail pages show the age rating and score when the server has them.
+
 ## 0.3.0
 
 - Plex: sign in with a code at plex.tv/link (no typing with a controller), pick your servers, and their movies, shows and music show up next to everything else, with artwork. Lightcone finds the fastest way to each server (home network, internet, or Plex's relay).

@@ -8,6 +8,9 @@ public enum MediaKind
     Album,
     Track,
     Artist,
+
+    /// <summary>A group of movies or shows: a server collection, one made in Lightcone, or an automatic one.</summary>
+    Collection,
 }
 
 /// <summary>
@@ -57,6 +60,20 @@ public sealed record MediaItem
 
     /// <summary>Season number of an episode.</summary>
     public int? Season { get; init; }
+
+    /// <summary>The server's global id ("plex://movie/5d77…"), used for its online watchlist.</summary>
+    public string? Guid { get; init; }
+
+    /// <summary>Collections the server puts this item in ("The Lord of the Rings Collection").</summary>
+    public IReadOnlyList<string> Collections { get; init; } = [];
+
+    /// <summary>Age rating ("PG-13", "TV-MA"), when the source knows it.</summary>
+    public string? ContentRating { get; init; }
+
+    /// <summary>Audience or critic score out of 10, when the source knows it.</summary>
+    public double? Rating { get; init; }
+
+    public bool IsMusic => Kind is MediaKind.Album or MediaKind.Track or MediaKind.Artist;
 
     public bool Playable => PlayUrl != null;
 

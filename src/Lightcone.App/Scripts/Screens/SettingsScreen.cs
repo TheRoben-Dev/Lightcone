@@ -14,6 +14,7 @@ public partial class SettingsScreen : TwoPaneScreen
     private static readonly (string Name, string Summary)[] CategoryList =
     [
         ("Playback", "Hardware decoding, languages, subtitles and seeking."),
+        ("Library", "Music, collections and the watchlist."),
         ("Appearance", "Theme, accent colour, CRT effect and animations."),
         ("Sound & feel", "Menu sounds and controller rumble."),
         ("Layout", "Controller or desktop layout, and keyboard shortcuts."),
@@ -32,6 +33,9 @@ public partial class SettingsScreen : TwoPaneScreen
             case "Playback":
                 BuildPlayback(col, Add);
                 break;
+            case "Library":
+                BuildLibrary(col, Add);
+                break;
             case "Appearance":
                 BuildAppearance(col, Add);
                 break;
@@ -48,6 +52,24 @@ public partial class SettingsScreen : TwoPaneScreen
                 BuildAbout(col, Add);
                 break;
         }
+    }
+
+    private void BuildLibrary(VBoxContainer col, Action<Control> Add)
+    {
+        Add(Toggle.Create("Music", Host.Settings.MusicTab, on => App.ApplyMusicTab(on),
+            "Lightcone is about movies and TV first. Music adds its own tab, Home rows and search results.",
+            "Albums and tracks from your sources get a Music tab.",
+            "No Music tab, and music stays out of Home and search. Your music isn't removed."));
+        Add(Toggle.Create("Automatic collections", Host.Settings.AutoCollections, on => Host.SaveSettings(Host.Settings with { AutoCollections = on }),
+            "Groups movies and shows by genre and decade, next to your own and your servers' collections.",
+            "Movies and Shows list collections like \"Sci-Fi movies\" and \"1990s movies\".",
+            "Only collections you made and your servers' collections."));
+        var lib = Host.Library;
+        var watch = lib.Watchlist().Count;
+        var mine = lib.Lists.Collections.Count;
+        col.AddChild(UiTheme.Label($"Watchlist: {watch} {(watch == 1 ? "title" : "titles")}. Collections you made: {mine}. " +
+            (Host.Plex.Account.Token != null ? "Your Plex watchlist syncs both ways." : "Sign in to Plex in Sources to sync your Plex watchlist."),
+            UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
     }
 
     private string? _pendingTheme;

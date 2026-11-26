@@ -19,7 +19,10 @@ namespace Lightcone.App;
 public partial class Main : Control
 {
     /// <summary>Sections, in order: bumpers / Tab cycle them in Controller mode, the sidebar lists them in Desktop mode.</summary>
-    public static readonly string[] TabNames = ["Home", "Movies", "Shows", "Music", "Sources", "Settings"];
+    public static string[] TabNames => Instance?.Host?.Settings.MusicTab == false ? NoMusic : AllTabs;
+
+    private static readonly string[] AllTabs = ["Home", "Movies", "Shows", "Music", "Sources", "Settings"];
+    private static readonly string[] NoMusic = ["Home", "Movies", "Shows", "Sources", "Settings"];
 
     private static Screen NewTab(int index) => TabNames[index] switch
     {
@@ -444,6 +447,32 @@ public partial class Main : Control
             s.Rebuild();
         }
         UpdateChrome();
+    }
+
+    /// <summary>Shows or hides the Music tab (Settings → Library); stays on Settings.</summary>
+    public void ApplyMusicTab(bool on)
+    {
+        if (Host == null || Host.Settings.MusicTab == on)
+        {
+            return;
+        }
+        Host.SaveSettings(Host.Settings with { MusicTab = on });
+        AppLog.Info($"music tab -> {(on ? "on" : "off")}");
+        var focus = GetViewport().GuiGetFocusOwner();
+        BuildChrome();
+        if (focus != null && IsInstanceValid(focus))
+        {
+            Callable.From(() =>
+            {
+                if (IsInstanceValid(focus) && focus.IsInsideTree())
+                {
+                    focus.GrabFocus();
+                }
+            }).CallDeferred();
+        }
+        _tab = Array.IndexOf(TabNames, "Settings");
+        UpdateChrome();
+        UpdatePlaying();
     }
 
     /// <summary>Switches between Controller and Desktop mode (Settings, or the sidebar's button).</summary>

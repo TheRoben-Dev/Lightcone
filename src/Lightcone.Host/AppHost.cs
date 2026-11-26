@@ -39,6 +39,12 @@ public sealed record AppSettings
     /// <summary>A light rumble on the pad for menu moves, presses and errors.</summary>
     public bool Haptics { get; init; } = true;
 
+    /// <summary>Music in Lightcone (its tab, Home rows and search). Movies and TV are the main thing; this can go.</summary>
+    public bool MusicTab { get; init; } = true;
+
+    /// <summary>Automatic collections (by genre and decade) in Movies and Shows.</summary>
+    public bool AutoCollections { get; init; } = true;
+
     /// <summary>Show the built-in sample library (until a real source is added, and for trying the app out).</summary>
     public bool DemoLibrary { get; init; } = true;
 
@@ -105,7 +111,11 @@ public sealed class AppHost
         {
             Updater.TestChannel = channel == "test";
         }
-        Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile));
+        Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile), new UserLists(Path.Combine(Paths.Data, "lists.json")))
+        {
+            Music = Settings.MusicTab,
+            AutoCollections = Settings.AutoCollections,
+        };
         ApplyDemo(Settings.DemoLibrary);
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
     }
@@ -130,6 +140,8 @@ public sealed class AppHost
     {
         Settings = settings;
         SaveJson(Paths.SettingsFile, settings);
+        Library.Music = settings.MusicTab;
+        Library.AutoCollections = settings.AutoCollections;
         SettingsChanged?.Invoke(settings);
     }
 
