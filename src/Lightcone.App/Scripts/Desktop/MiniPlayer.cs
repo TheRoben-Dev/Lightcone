@@ -62,11 +62,11 @@ public partial class MiniPlayer : PanelContainer
 
         var transport = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
         transport.AddThemeConstantOverride("separation", 4);
-        transport.AddChild(Small("⟲", "Back 10 s", () => PlayerService.Instance.SeekBy(-(Main.Instance.Host?.Settings.SeekStep ?? 10))));
+        transport.AddChild(Small("⟲", $"Back {Main.Instance.Host?.Settings.SeekBack ?? 10} s", () => PlayerService.Instance.Step(-1)));
         _play = Small("❚❚", "Play / pause (Space)", () => PlayerService.Instance.TogglePause());
         _play.CustomMinimumSize = new Vector2(52, 44);
         transport.AddChild(_play);
-        transport.AddChild(Small("⟳", "Forward 10 s", () => PlayerService.Instance.SeekBy(Main.Instance.Host?.Settings.SeekStep ?? 10)));
+        transport.AddChild(Small("⟳", $"Forward {Main.Instance.Host?.Settings.SeekForward ?? 30} s", () => PlayerService.Instance.Step(1)));
         transport.AddChild(Small("■", "Stop", () => PlayerService.Instance.Stop()));
         row.AddChild(transport);
 
@@ -130,10 +130,10 @@ public partial class MiniPlayer : PanelContainer
         }
         var svc = PlayerService.Instance;
         var d = svc.Duration ?? 0;
-        _bar.Fraction = d > 0 ? (float)(svc.Position / d) : 0;
+        _bar.Fraction = d > 0 ? (float)(svc.DisplayPosition / d) : 0;
         _time.Text = d > 0
-            ? $"{MediaItem.FormatDuration(svc.Position, true)} / {MediaItem.FormatDuration(d, true)}"
-            : MediaItem.FormatDuration(svc.Position, true);
+            ? $"{MediaItem.FormatDuration(svc.DisplayPosition, true)} / {MediaItem.FormatDuration(d, true)}"
+            : MediaItem.FormatDuration(svc.DisplayPosition, true);
         var glyph = svc.Paused ? "▶" : "❚❚";
         if (_play.Text != glyph)
         {

@@ -39,7 +39,8 @@ public partial class Sidebar : PanelContainer
         mark.CustomMinimumSize = new Vector2(0, 40);
         col.AddChild(mark);
 
-        _search = new LineEdit { PlaceholderText = "Search  ( / )", ClearButtonEnabled = true, CustomMinimumSize = new Vector2(0, 40) };
+        // Mouse and keyboard only: a controller searches with View (the search page has the on-screen keyboard).
+        _search = new LineEdit { PlaceholderText = "Search  ( / )", ClearButtonEnabled = true, CustomMinimumSize = new Vector2(0, 40), FocusMode = FocusModeEnum.Click, VirtualKeyboardEnabled = false };
         _search.TextSubmitted += q =>
         {
             Searched?.Invoke(q.Trim());

@@ -42,7 +42,7 @@ internal static class Cli
             switch (args[0])
             {
                 case "version":
-                    Console.WriteLine(AppUpdater.DisplayVersion(AppUpdater.CurrentAppVersion()));
+                    Console.WriteLine(AppUpdater.DisplayVersion(AppUpdater.CurrentAppVersion(), AppUpdater.CurrentAppTestBuild()));
                     return 0;
                 case "settings":
                 {

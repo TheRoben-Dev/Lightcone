@@ -33,7 +33,7 @@ public static class AppLog
                 _writer = new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) { AutoFlush = true };
                 FilePath = path;
                 _writer.WriteLine();
-                Write("INFO", $"started, version {Updates.AppUpdater.DisplayVersion(Updates.AppUpdater.CurrentAppVersion())}");
+                Write("INFO", $"started, version {Updates.AppUpdater.DisplayVersion(Updates.AppUpdater.CurrentAppVersion(), Updates.AppUpdater.CurrentAppTestBuild())}");
                 AppDomain.CurrentDomain.UnhandledException += (_, e) => Error("unhandled: " + e.ExceptionObject);
                 TaskScheduler.UnobservedTaskException += (_, e) => Error("unobserved task: " + e.Exception);
             }

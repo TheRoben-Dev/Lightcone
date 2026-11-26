@@ -18,6 +18,18 @@ public partial class PosterArt : Control
     private readonly float _radius;
     private double? _progress;
     private readonly Label? _title;
+    private bool _focused;
+
+    /// <summary>Draws the focus ring inside the art (tiles draw their own focus).</summary>
+    public bool Focused
+    {
+        get => _focused;
+        set
+        {
+            _focused = value;
+            QueueRedraw();
+        }
+    }
 
     public PosterArt(MediaItem item, Vector2 size, double? progress = null, float radius = 10, bool showTitle = true)
     {
@@ -95,17 +107,52 @@ public partial class PosterArt : Control
         _ => "•",
     };
 
+    /// <summary>A w x h rectangle whose top corners are rounded by r, as polygon points.</summary>
+    private static Vector2[] RoundedTop(float w, float h, float r)
+    {
+        var pts = new List<Vector2>();
+        const int steps = 6;
+        for (var i = 0; i <= steps; i++)
+        {
+            var a = Mathf.Pi + Mathf.Pi / 2 * i / steps;  // left corner: 180° to 270°
+            pts.Add(new Vector2(r + r * Mathf.Cos(a), r + r * Mathf.Sin(a)));
+        }
+        for (var i = 0; i <= steps; i++)
+        {
+            var a = Mathf.Pi * 1.5f + Mathf.Pi / 2 * i / steps;  // right corner: 270° to 360°
+            pts.Add(new Vector2(w - r + r * Mathf.Cos(a), r + r * Mathf.Sin(a)));
+        }
+        pts.Add(new Vector2(w, h));
+        pts.Add(new Vector2(0, h));
+        return pts.ToArray();
+    }
+
     public override void _Draw()
     {
         var rect = new Rect2(Vector2.Zero, Size);
         var r = Math.Min(_radius, UiTheme.Spec.Radius);
         if (_tex != null)
         {
-            // Cover-fit: fill the box, crop the overflow.
             var ts = _tex.GetSize();
-            var scale = Mathf.Max(Size.X / ts.X, Size.Y / ts.Y);
-            var src = new Vector2(Size.X / scale, Size.Y / scale);
-            DrawTextureRectRegion(_tex, rect, new Rect2((ts - src) / 2, src));
+            var frameAspect = Size.X / Size.Y;
+            var texAspect = ts.X / ts.Y;
+            if (Math.Abs(frameAspect / texAspect - 1) > 0.25f && _item.Kind is MediaKind.Album or MediaKind.Track or MediaKind.Artist)
+            {
+                // A square cover in a poster frame: show all of it, centred on the item's colour.
+                var bg = new StyleBoxFlat { BgColor = UiTheme.TileColor(_item.Title).Darkened(0.5f) };
+                bg.SetCornerRadiusAll((int)r);
+                DrawStyleBox(bg, rect);
+                var fit = Mathf.Min(Size.X / ts.X, Size.Y / ts.Y);
+                var dst = ts * fit;
+                DrawTextureRect(_tex, new Rect2((Size - dst) / 2, dst), false);
+            }
+            else
+            {
+                // Cover-fit: fill the box, crop the overflow.
+                var scale = Mathf.Max(Size.X / ts.X, Size.Y / ts.Y);
+                var src = new Vector2(Size.X / scale, Size.Y / scale);
+                DrawTextureRectRegion(_tex, rect, new Rect2((ts - src) / 2, src));
+            }
         }
         else
         {
@@ -116,14 +163,26 @@ public partial class PosterArt : Control
             box.SetCornerRadiusAll((int)r);
             DrawStyleBox(box, rect);
             // Vertical gradient, then a soft diagonal "beam" for depth.
-            DrawPolygon([rect.Position, new Vector2(rect.End.X, 0), new Vector2(rect.End.X, Size.Y * 0.7f), new Vector2(0, Size.Y * 0.7f)],
-                [top with { A = 0.85f }, top with { A = 0.85f }, bottom with { A = 0f }, bottom with { A = 0f }]);
+            // (Its top corners follow the box's rounding, so nothing pokes out past the frame or the focus ring.)
+            var shade = RoundedTop(Size.X, Size.Y * 0.7f, r);
+            DrawPolygon(shade, shade.Select(v => (top with { A = 0.85f }).Lerp(bottom with { A = 0f }, v.Y / (Size.Y * 0.7f))).ToArray());
             var beam = new Color(1, 1, 1, 0.07f);
             DrawPolygon([new Vector2(Size.X * 0.55f, 0), new Vector2(Size.X * 0.85f, 0), new Vector2(Size.X * 0.25f, Size.Y), new Vector2(-Size.X * 0.1f, Size.Y)],
                 [beam, beam, beam with { A = 0 }, beam with { A = 0 }]);
             var font = UiTheme.CurrentFont;
-            var gs = Mathf.Clamp((int)(Size.Y * 0.12f), 14, 40);
-            DrawString(font, new Vector2(12, 12 + gs), Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs, new Color(1, 1, 1, 0.55f));
+            if (_title != null)
+            {
+                var gs = Mathf.Clamp((int)(Size.Y * 0.12f), 14, 40);
+                DrawString(font, new Vector2(12, 12 + gs), Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs, new Color(1, 1, 1, 0.55f));
+            }
+            else
+            {
+                // No title on the card: one larger centred glyph.
+                var gs = Mathf.Clamp((int)(Mathf.Min(Size.X, Size.Y) * 0.28f), 18, 72);
+                var w = font.GetStringSize(Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs).X;
+                DrawString(font, new Vector2((Size.X - w) / 2, Size.Y / 2 + gs * 0.35f), Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs,
+                    new Color(1, 1, 1, 0.5f));
+            }
         }
         if (_progress is { } p and > 0)
         {
@@ -131,6 +190,13 @@ public partial class PosterArt : Control
             var track = new Rect2(0, Size.Y - h, Size.X, h);
             DrawRect(track, new Color(0, 0, 0, 0.55f));
             DrawRect(new Rect2(track.Position, new Vector2((float)(Size.X * Math.Clamp(p, 0, 1)), h)), UiTheme.Accent);
+        }
+        if (_focused)
+        {
+            var ring = new StyleBoxFlat { DrawCenter = false, BorderColor = UiTheme.Accent, AntiAliasing = true };
+            ring.SetBorderWidthAll(3);
+            ring.SetCornerRadiusAll((int)r);
+            DrawStyleBox(ring, rect);
         }
     }
 }

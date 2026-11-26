@@ -77,8 +77,7 @@ public partial class LibraryScreen : Screen
         var shape = items.Count > 0 ? PosterTile.ShapeFor(items[0]) : TileShape.Poster;
         var tileW = PosterTile.SizeFor(shape, Desktop).X;
         var gap = Desktop ? 18 : 24;
-        var width = Math.Max(400, GetViewportRect().Size.X / (Desktop ? GetWindow().ContentScaleFactor : 1) - (Desktop ? 300 : 100));
-        var columns = Math.Max(1, (int)((width + gap) / (tileW + gap)));
+        var columns = ColumnsFor(tileW, gap);
         var grid = new GridContainer { Columns = columns };
         grid.AddThemeConstantOverride("h_separation", gap);
         grid.AddThemeConstantOverride("v_separation", gap);

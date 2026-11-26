@@ -42,6 +42,19 @@ public partial class PlayerService : Node
 
     public double Position { get; private set; }
 
+    /// <summary>
+    /// Where the bar and clock should show: the target of a seek that is still in flight (for up to
+    /// a second and a half), else <see cref="Position"/>. Keeps rapid presses adding up visibly.
+    /// </summary>
+    public double DisplayPosition =>
+        _seekTarget is { } t && Time.GetTicksMsec() - _seekAt < 1500 && Math.Abs(Position - t) > 1 ? t : Position;
+
+    private double? _seekTarget;
+    private ulong _seekAt;
+    private ulong _lastStepAt;
+    private int _stepRun;
+    private int _stepDir;
+
     public double? Duration { get; private set; }
 
     /// <summary>The intro/credits marker under the playhead, if any.</summary>
@@ -169,6 +182,7 @@ public partial class PlayerService : Node
         var start = fromStart ? 0 : Host.Library.PositionOf(item) ?? 0;
         Current = item;
         Position = start;
+        _seekTarget = null;
         Duration = item.Duration;
         HasVideo = item.Kind is not (MediaKind.Track or MediaKind.Album);
         ActiveMarker = null;
@@ -203,7 +217,9 @@ public partial class PlayerService : Node
     {
         if (_mpv != null && Current != null)
         {
+            var from = DisplayPosition;
             Guard(() => _mpv.Seek(seconds, relative: true));
+            MarkSeek(from + seconds);
         }
     }
 
@@ -212,7 +228,36 @@ public partial class PlayerService : Node
         if (_mpv != null && Current != null)
         {
             Guard(() => _mpv.Seek(Math.Max(0, seconds)));
+            MarkSeek(seconds);
         }
+    }
+
+    /// <summary>
+    /// One skip press (<paramref name="dir"/> -1 back, +1 forward) by the step from Settings. Presses
+    /// that follow each other quickly in the same direction (a held trigger or key) speed up: after
+    /// three, each jumps twice as far, after six four times, after ten eight times.
+    /// </summary>
+    public void Step(int dir)
+    {
+        var now = Time.GetTicksMsec();
+        var since = now - _lastStepAt;
+        if (dir == _stepDir && since < 180)
+        {
+            return;  // d-pad and key auto-repeat come faster than seeks are useful; the multiplier speeds up instead
+        }
+        _stepRun = dir == _stepDir && since < 800 ? _stepRun + 1 : 0;
+        _stepDir = dir;
+        _lastStepAt = now;
+        var s = Host.Settings;
+        var step = dir < 0 ? s.SeekBack : s.SeekForward;
+        var mult = _stepRun >= 10 ? 8 : _stepRun >= 6 ? 4 : _stepRun >= 3 ? 2 : 1;
+        SeekBy(dir * step * mult);
+    }
+
+    private void MarkSeek(double target)
+    {
+        _seekTarget = Math.Clamp(target, 0, Duration ?? double.MaxValue);
+        _seekAt = Time.GetTicksMsec();
     }
 
     public void SkipMarker()

@@ -41,6 +41,63 @@ public abstract partial class Screen : MarginContainer
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         Rebuild();
+        // Grids are laid out for the page's width: rebuild when it really changes (window resize,
+        // or the first layout pass putting the page where it belongs).
+        ItemRectChanged += () =>
+        {
+            // (Not while sliding in or out: the page moves then, and settles where it belongs after.)
+            if (WidthChanged())
+            {
+                Callable.From(() =>
+                {
+                    if (IsInstanceValid(this) && IsInsideTree() && WidthChanged())
+                    {
+                        Rebuild();
+                    }
+                }).CallDeferred();
+            }
+        };
+    }
+
+    private float _builtWidth = -1;
+    private (float Tile, float Gap, float Reserve, int Columns) _builtGrid;
+
+    private bool WidthChanged() =>
+        UsesWidth && Modulate.A > 0.99f && Columns(AvailableWidth(), _builtGrid.Tile, _builtGrid.Gap, _builtGrid.Reserve) != _builtGrid.Columns;
+
+    private static int Columns(float width, float tileW, float gap, float reserve) =>
+        Math.Max(1, (int)((width - reserve - 16 + gap) / (tileW + gap)));
+
+    /// <summary>Set when Build used <see cref="ColumnsFor"/>: the page rebuilds when its width changes.</summary>
+    private bool UsesWidth { get; set; }
+
+    /// <summary>
+    /// Width from the page's left edge to the window's right margin. Measured against the window,
+    /// not the page's own size, which a too-wide grid would stretch.
+    /// </summary>
+    private float AvailableWidth()
+    {
+        var view = GetViewportRect().Size.X;
+        var left = IsInsideTree() ? GetGlobalRect().Position.X : 0;
+        if (left <= 0 && Desktop)
+        {
+            left = 260;  // before the first layout: about the sidebar's width
+        }
+        return Math.Max(200, view - Math.Max(left, Desktop ? 0 : 40) - (Desktop ? 26 : 40));
+    }
+
+    /// <summary>
+    /// How many tiles of width <paramref name="tileW"/> with <paramref name="gap"/> between them fit
+    /// across the page, less <paramref name="reserve"/> pixels used by other things on the same line.
+    /// </summary>
+    protected int ColumnsFor(float tileW, float gap, float reserve = 0)
+    {
+        UsesWidth = true;
+        _builtWidth = AvailableWidth();
+        // (16: room for the scroller's gutter and the focus ring at the edges.)
+        var columns = Columns(_builtWidth, tileW, gap, reserve);
+        _builtGrid = (tileW, gap, reserve, columns);
+        return columns;
     }
 
     /// <summary>Clears and rebuilds the page (after data changes), keeping focus near where it was.</summary>

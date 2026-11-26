@@ -37,7 +37,7 @@ public partial class Header : HBoxContainer
         AddChild(name);
         // Search (View button), and what's playing in the background.
         _game.AddThemeConstantOverride("separation", 10);
-        _game.CustomMinimumSize = new Vector2(240, 0);
+        _game.CustomMinimumSize = new Vector2(180, 0);
         _game.GuiInput += e =>
         {
             if (e is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
@@ -47,7 +47,7 @@ public partial class Header : HBoxContainer
         };
         AddChild(_game);
         AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
-        _tabRow.AddThemeConstantOverride("separation", 30);
+        _tabRow.AddThemeConstantOverride("separation", 24);
         _tabRow.AddChild(_prev);
         foreach (var t in tabs)
         {
@@ -75,13 +75,9 @@ public partial class Header : HBoxContainer
         }
         _tabRow.AddChild(_next);
         AddChild(_tabRow);
+        // Balances the left spacer so the tabs sit centred. (The version is in Settings → Updates;
+        // there is no room for it at 1280x800.)
         AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
-        var version = UiTheme.Label("v" + Lightcone.Host.Updates.AppUpdater.DisplayVersion(Lightcone.Host.Updates.AppUpdater.CurrentAppVersion()),
-            UiTheme.SmallSize, UiTheme.Dim);
-        version.CustomMinimumSize = new Vector2(60, 0);
-        version.HorizontalAlignment = HorizontalAlignment.Right;
-        version.VerticalAlignment = VerticalAlignment.Center;
-        AddChild(version);
 
         // The underline floats over the row (not laid out by it) so it can glide between tabs.
         _underline.TopLevel = true;
@@ -127,8 +123,9 @@ public partial class Header : HBoxContainer
         label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         label.CustomMinimumSize = new Vector2(80, 0);
         label.MouseFilter = MouseFilterEnum.Ignore;
+        // Glyph first, then the cover (if playing) and the text: reads as "[View] Search".
         _game.AddChild(label);
-        _game.MoveChild(label, cover == null ? 0 : 1);
+        _game.MoveChild(_switch, 0);
         _switch.SetGlyph(Pad.Glyph(Pad.Switch));
     }
 

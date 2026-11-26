@@ -34,14 +34,16 @@ public partial class MediaRow : VBoxContainer
         pad.AddThemeConstantOverride("margin_bottom", 8);
         pad.AddChild(hbox);
         scroll.AddChild(pad);
+        // One shape per row, so every card in it is the same height (an album among movies gets a
+        // poster frame with its cover fitted inside). The row is as tall as its cards.
+        var shapes = row.Items.Select(i => PosterTile.ShapeFor(i, row.Wide)).Distinct().ToList();
+        var shape = shapes.Count == 1 ? shapes[0] : shapes.Contains(TileShape.Poster) ? TileShape.Poster : shapes[0];
         foreach (var item in row.Items)
         {
-            var tile = new PosterTile(item, PosterTile.ShapeFor(item, row.Wide), PosterTile.ProgressOf(lib, item), desktop, open);
+            var tile = new PosterTile(item, shape, PosterTile.ProgressOf(lib, item), desktop, open);
             Tiles.Add(tile);
             hbox.AddChild(tile);
         }
-        var shape = row.Items.Count > 0 ? PosterTile.ShapeFor(row.Items[0], row.Wide) : TileShape.Poster;
-        scroll.CustomMinimumSize = new Vector2(0, PosterTile.SizeFor(shape, desktop).Y + 54 + 20);
     }
 
     /// <summary>Wires up/down between rows to the tile nearest in x (no diagonal surprises).</summary>

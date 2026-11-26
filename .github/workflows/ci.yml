@@ -16,6 +16,9 @@ permissions:
 
 env:
   GODOT_VERSION: 4.7.2
+  # Test builds are versioned 0.2.0-test.<run>: MSBuild reads VersionSuffix from the environment,
+  # so the app knows it is test build <run> and its updater can move it to newer test builds.
+  VersionSuffix: ${{ (github.event_name == 'workflow_dispatch' && inputs.test_build) && format('test.{0}', github.run_number) || '' }}
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
@@ -233,7 +236,7 @@ jobs:
           dotnet publish src/Lightcone.Cli -c Release -r win-x64 --self-contained \
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o build/godot-windows
           test -f build/godot-windows/lightcone-cli.exe
-          tools/release/package-windows.sh build/godot-windows 0.0.0 dist-windows   # for the installer test on Windows
+          tools/release/package-windows.sh build/godot-windows "$(sed -n 's:.*<VersionPrefix>\(.*\)</VersionPrefix>.*:\1:p' Directory.Build.props)${VersionSuffix:+-$VersionSuffix}" dist-windows   # for the installer test on Windows
 
       - name: Export macOS build (universal, ad-hoc signed by Godot)
         working-directory: src/Lightcone.App
@@ -370,7 +373,7 @@ jobs:
           name: Lightcone-macos-export
           path: build/godot-macos
       - name: Package (Lightcone-macos-universal.zip)
-        run: tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli 0.0.0 dist-macos build/libmpv/macos
+        run: tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli "$(sed -n 's:.*<VersionPrefix>\(.*\)</VersionPrefix>.*:\1:p' Directory.Build.props)${VersionSuffix:+-$VersionSuffix}" dist-macos build/libmpv/macos
       - name: App bundle runs
         run: |
           ditto -x -k dist-macos/Lightcone-macos-universal.zip "$RUNNER_TEMP/app"
@@ -402,7 +405,7 @@ jobs:
       - name: Version
         id: v
         run: |
-          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          v=$(sed -n 's:.*<VersionPrefix>\(.*\)</VersionPrefix>.*:\1:p' Directory.Build.props)
           echo "version=$v" >> "$GITHUB_OUTPUT"
           if gh release view "v$v" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
         env:
@@ -452,7 +455,7 @@ jobs:
       - name: Version
         id: v
         run: |
-          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          v=$(sed -n 's:.*<VersionPrefix>\(.*\)</VersionPrefix>.*:\1:p' Directory.Build.props)
           echo "version=$v" >> "$GITHUB_OUTPUT"
           if gh release view "v$v" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
         env:
@@ -484,8 +487,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   test-build:
-    # Manual runs with test_build: the packages this run tested, as a pre-release named after the
-    # commit. The in-app updater only reads the latest full release, so nobody is updated to it.
+    # Manual runs with test_build: the packages this run tested, as the pre-release v<version>-test.<run>.
+    # Installs on the test channel (the default for a test build) update themselves to it; release
+    # installs only see it if they pick the test channel in Settings.
     name: Publish test build (pre-release)
     needs: [app, windows, macos]
     if: github.event_name == 'workflow_dispatch' && inputs.test_build
@@ -508,13 +512,13 @@ jobs:
           path: dist
       - name: Package and publish
         run: |
-          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
-          tag="test-${GITHUB_SHA::7}"
+          v=$(sed -n 's:.*<VersionPrefix>\(.*\)</VersionPrefix>.*:\1:p' Directory.Build.props)
+          tag="v$v-$VersionSuffix"
           chmod +x build/godot/Lightcone.x86_64 build/godot/lightcone
-          tools/release/package.sh build/godot "$v-test" dist
+          tools/release/package.sh build/godot "$v-$VersionSuffix" dist
           (cd dist && sha256sum Lightcone-windows-x86_64.zip Lightcone-macos-universal.zip >> SHA256SUMS)
           cat > notes.md <<EOF
-          Test build of \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA::7}, not a release. Playback is bundled: nothing else to install.
+          Test build ${GITHUB_RUN_NUMBER} of \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA::7}, not a release. Playback is bundled: nothing else to install. Test builds update themselves: Settings → Updates → Check for updates (or wait for the startup check).
 
           - **Steam Deck / Linux:** \`tar xzf Lightcone-linux-x86_64.tar.gz && ./Lightcone/install.sh\` (or run \`./Lightcone/Lightcone.x86_64\` without installing).
           - **Windows:** unzip, double-click **Install Lightcone.cmd** (or run Lightcone.exe from the folder). SmartScreen: More info, Run anyway.
@@ -523,7 +527,7 @@ jobs:
           gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$tag" dist/Lightcone-linux-x86_64.tar.gz dist/Lightcone-windows-x86_64.zip \
             dist/Lightcone-macos-universal.zip dist/SHA256SUMS \
-            --prerelease --target "$GITHUB_SHA" --title "Lightcone $v test build (${GITHUB_SHA::7})" --notes-file notes.md
+            --prerelease --target "$GITHUB_SHA" --title "Lightcone $v test $GITHUB_RUN_NUMBER (${GITHUB_SHA::7})" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -48,6 +48,48 @@ public class UpdaterTests : IDisposable
     }
 
     [Fact]
+    public void TestBuildsNeedTheTestChannelAndOrderBeforeTheirRelease()
+    {
+        var test = ReleaseJson("v0.2.0-test.57", prerelease: true);
+        Assert.Null(AppUpdater.ParseRelease(test, UpdatePackage.Linux));
+        var r = AppUpdater.ParseRelease(test, UpdatePackage.Linux, allowTest: true)!;
+        Assert.Equal(57, r.TestBuild);
+        Assert.Equal("0.2.0 test 57", r.Display);
+        // Old commit-named pre-releases and test tags not marked pre-release are ignored.
+        Assert.Null(AppUpdater.ParseRelease(ReleaseJson("test-4ed53c3", prerelease: true), UpdatePackage.Linux, allowTest: true));
+        Assert.Null(AppUpdater.ParseRelease(ReleaseJson("v0.2.0-test.57"), UpdatePackage.Linux, allowTest: true));
+        Assert.Equal(57, AppUpdater.ParseTestBuild("0.2.0-test.57+4ed53c3"));
+        Assert.Null(AppUpdater.ParseTestBuild("0.2.0+4ed53c3"));
+        var v = new Version(0, 2, 0);
+        Assert.True(AppUpdater.IsNewer(v, 58, v, 57));
+        Assert.True(AppUpdater.IsNewer(v, null, v, 57));
+        Assert.False(AppUpdater.IsNewer(v, 99, v, null));
+        Assert.True(AppUpdater.IsNewer(new Version(0, 2, 1), 1, v, null));
+    }
+
+    [Fact]
+    public async Task TestChannelPicksTheNewestBuild()
+    {
+        var list = "[" + string.Join(",", ReleaseJson("v0.2.0-test.58", prerelease: true), ReleaseJson("v0.2.0-test.60", prerelease: true),
+            ReleaseJson("v0.1.1"), ReleaseJson("test-abc1234", prerelease: true)) + "]";
+        var http = new HttpClient(new Fake(new()
+        {
+            [AppUpdater.ReleasesApi] = System.Text.Encoding.UTF8.GetBytes(list),
+            [AppUpdater.LatestApi] = System.Text.Encoding.UTF8.GetBytes(ReleaseJson("v0.1.1")),
+        }));
+        var onTest = new AppUpdater(http, _root, new Version(0, 2, 0), UpdatePackage.Linux, currentTest: 58);
+        Assert.True(onTest.IsTestBuild && onTest.TestChannel);
+        Assert.Equal(60, (await onTest.CheckAsync())!.TestBuild);
+        Assert.Null(await new AppUpdater(http, _root, new Version(0, 2, 0), UpdatePackage.Linux, currentTest: 60).CheckAsync());
+        // A release build stays on releases unless the test channel is chosen.
+        var release = new AppUpdater(http, _root, new Version(0, 1, 1), UpdatePackage.Linux);
+        Assert.False(release.TestChannel);
+        Assert.Null(await release.CheckAsync());
+        release.TestChannel = true;
+        Assert.Equal("0.2.0 test 60", (await release.CheckAsync())!.Display);
+    }
+
+    [Fact]
     public async Task OnlyNewerReleasesAreOffered()
     {
         var http = new HttpClient(new Fake(new() { [AppUpdater.LatestApi] = System.Text.Encoding.UTF8.GetBytes(ReleaseJson()) }));
