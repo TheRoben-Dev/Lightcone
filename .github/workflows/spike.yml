@@ -1,0 +1,58 @@
+name: Playback spike
+
+on:
+  pull_request:
+    paths: ["spike/**", "tools/spike/**", ".github/workflows/spike.yml"]
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  spike:
+    name: libmpv into Godot texture (Xvfb, llvmpipe)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Install libmpv, ffmpeg, Xvfb, Mesa
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libmpv-dev ffmpeg xvfb libgl1-mesa-dri libegl1 fonts-dejavu-core python3-pil
+      - name: Cache Godot
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-dl
+          key: godot-mono-${{ env.GODOT_VERSION }}
+      - name: Download Godot .NET
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-dl && cd ~/godot-dl
+          curl -fsSL --retry 3 -o editor.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64.zip"
+          unzip -q editor.zip -d editor && rm editor.zip
+      - name: Locate Godot
+        run: echo "GODOT=$(ls ~/godot-dl/editor/*/Godot_v*_mono_linux.x86_64)" >> "$GITHUB_ENV"
+      - name: Build and import
+        working-directory: spike/video-playback
+        run: |
+          dotnet build -c Debug
+          timeout 300 "$GODOT" --headless --import || true
+      - name: Make test clips
+        run: tools/spike/make-test-clip.sh "${{ runner.temp }}/clips"
+      - name: H.264, shared context (must pass)
+        env:
+          SPIKE_OPTS: fbo-format=rgba8
+        run: tools/spike/run-spike.sh "$GODOT" "${{ runner.temp }}/clips/test-h264.mkv" "${{ runner.temp }}/shots/h264"
+      - name: HEVC 10-bit, shared context (informational, llvmpipe GLES 16-bit uploads are flaky)
+        continue-on-error: true
+        env:
+          SPIKE_OPTS: fbo-format=rgba8
+        run: tools/spike/run-spike.sh "$GODOT" "${{ runner.temp }}/clips/test-hevc10.mkv" "${{ runner.temp }}/shots/hevc10"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-screenshots
+          path: ${{ runner.temp }}/shots
