@@ -37,6 +37,17 @@ public interface IMediaSource
     {
     }
 
+    /// <summary>
+    /// Whether the account's online watchlist has the item: true / false when the server keeps a
+    /// watchlist (it wins over this device's), null when it doesn't.
+    /// </summary>
+    bool? ServerWatchlist(MediaItem item) => null;
+
+    /// <summary>Added to or removed from the watchlist by the user.</summary>
+    void OnWatchlist(MediaItem item, bool on)
+    {
+    }
+
     /// <summary>Called when an item starts playing: fetch what only matters then (intro / credits markers).</summary>
     Task PrepareAsync(MediaItem item, CancellationToken ct = default) => Task.CompletedTask;
 

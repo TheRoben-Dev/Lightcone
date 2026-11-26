@@ -47,6 +47,7 @@ public sealed class DemoSource : IMediaSource
                 Year = m.Year,
                 Subtitle = $"{m.Year} · {m.Genre}",
                 Genres = [m.Genre],
+                Collections = i is 1 or 6 or 8 ? ["After Dark Collection"] : [],
                 Overview = m.Overview,
                 Duration = m.Minutes * 60,
                 Added = t0.AddDays(-i * 3),

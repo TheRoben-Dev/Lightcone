@@ -48,17 +48,18 @@ public class PlexTests : IDisposable
 
     private const string Movies = """
         {"MediaContainer":{"Metadata":[
-          {"ratingKey":"101","type":"movie","title":"Arrival","year":2016,"summary":"Linguist meets heptapods.","duration":6960000,
+          {"ratingKey":"101","type":"movie","title":"Arrival","year":2016,"guid":"plex://movie/5d7768ba96b655001fdc0408",
+           "contentRating":"PG-13","audienceRating":7.9,"Collection":[{"tag":"Favorites"}],"summary":"Linguist meets heptapods.","duration":6960000,
            "addedAt":1700000000,"viewOffset":1800000,"lastViewedAt":1700500000,"thumb":"/library/metadata/101/thumb/1",
            "Genre":[{"tag":"Science Fiction"},{"tag":"Drama"}],
            "Media":[{"Part":[{"key":"/library/parts/9001/1/Arrival.mkv"}]}]},
-          {"ratingKey":"102","type":"movie","title":"Heat","year":1995,"duration":10200000,"addedAt":1600000000,"viewCount":2,
+          {"ratingKey":"102","type":"movie","title":"Heat","year":1995,"guid":"plex://movie/5d776826999c64001ec2c606","Collection":[{"tag":"Favorites"}],"duration":10200000,"addedAt":1600000000,"viewCount":2,
            "Media":[{"Part":[{"key":"/library/parts/9002/1/Heat.mkv"}]}]}]}}
         """;
 
     private const string Shows = """
         {"MediaContainer":{"Metadata":[
-          {"ratingKey":"200","type":"show","title":"Severance","year":2022,"leafCount":3,"viewedLeafCount":1,"addedAt":1650000000,"thumb":"/library/metadata/200/thumb/1"}]}}
+          {"ratingKey":"200","type":"show","title":"Severance","year":2022,"guid":"plex://show/5d9c086c46115600200aa2fe","leafCount":3,"viewedLeafCount":1,"addedAt":1650000000,"thumb":"/library/metadata/200/thumb/1"}]}}
         """;
 
     private const string Episodes = """
@@ -123,6 +124,14 @@ public class PlexTests : IDisposable
         f.Routes["POST https://plex.tv/api/v2/pins"] = """{"id":77,"code":"AB12","expiresIn":900}""";
         f.Routes["GET https://plex.tv/api/v2/user"] = """{"username":"roben","title":"Roben"}""";
         f.Routes["GET https://plex.tv/api/v2/resources"] = Resources;
+        // The watchlist: Arrival, plus a film that isn't on any server (ignored).
+        f.Routes[$"GET {PlexWatchlist.Discover}/library/sections/watchlist/all"] = """
+            {"MediaContainer":{"size":2,"totalSize":2,"Metadata":[
+              {"ratingKey":"5d7768ba96b655001fdc0408","guid":"plex://movie/5d7768ba96b655001fdc0408","type":"movie","title":"Arrival"},
+              {"ratingKey":"5d77683f6f4521001ea9dc53","guid":"plex://movie/5d77683f6f4521001ea9dc53","type":"movie","title":"Dune"}]}}
+            """;
+        f.Routes[$"PUT {PlexWatchlist.Discover}/actions/addToWatchlist"] = "{}";
+        f.Routes[$"PUT {PlexWatchlist.Discover}/actions/removeFromWatchlist"] = "{}";
         foreach (var origin in new[] { Lan, Wan, Relay })
         {
             f.Routes[$"GET {origin}/identity"] = """{"MediaContainer":{"machineIdentifier":"srv1"}}""";
@@ -299,5 +308,48 @@ public class PlexTests : IDisposable
             await Task.Delay(10);
         }
         Assert.True(condition());
+    }
+
+    [Fact]
+    public async Task SyncsTheWatchlistAndReadsCollections()
+    {
+        var fake = Fake();
+        var (lib, plex) = Make(fake);
+        await plex.SignInAsync("account-token");
+        await plex.UseServersAsync(await plex.ServersAsync());
+        await plex.Watchlist.RefreshAsync();
+        var arrival = lib.Find("plex:srv1:101")!;
+        var severance = lib.Find("plex:srv1:200")!;
+        Assert.Equal(("PG-13", 7.9), (arrival.ContentRating, arrival.Rating));
+        Assert.True(lib.OnWatchlist(arrival));
+        Assert.False(lib.OnWatchlist(severance));
+        Assert.Equal(["Arrival"], lib.Watchlist().Select(i => i.Title));
+        Assert.Contains(lib.HomeRows(), r => r.Id == "watchlist");
+
+        lib.SetWatchlist(severance, true);
+        lib.SetWatchlist(arrival, false);
+        await plex.Watchlist.Flush();
+        Assert.Equal(["Severance"], lib.Watchlist().Select(i => i.Title));
+        var puts = fake.Seen.Where(r => r.Method == HttpMethod.Put).Select(r => r.RequestUri!.PathAndQuery).ToList();
+        Assert.Equal(["/actions/addToWatchlist?ratingKey=5d9c086c46115600200aa2fe", "/actions/removeFromWatchlist?ratingKey=5d7768ba96b655001fdc0408"], puts);
+        Assert.Equal("account-token", fake.Seen.First(r => r.Method == HttpMethod.Put).Headers.GetValues("X-Plex-Token").Single());
+
+        // Plex's collections show up as Lightcone collections.
+        var favorites = Assert.Single(lib.Collections(), c => c.Title == "Favorites");
+        Assert.Equal(MediaKind.Collection, favorites.Kind);
+        Assert.Equal(["Heat", "Arrival"], lib.Children(favorites.Id).Select(i => i.Title));  // by year
+        Assert.Equal("2 movies", favorites.Subtitle);
+        Assert.Equal(favorites, lib.Find(favorites.Id));
+
+        // Next start, offline: the watchlist is what was saved.
+        fake.Down.Add(PlexWatchlist.Discover);
+        var lib2 = new MediaLibrary(new ProgressStore(Path.Combine(_dir, "data", "progress2.json")));
+        var plex2 = new PlexService(lib2, Path.Combine(_dir, "config"), Path.Combine(_dir, "data"), new HttpClient(fake));
+        await plex2.Watchlist.RefreshAsync();
+        Assert.True(lib2.OnWatchlist(lib2.Find("plex:srv1:200")!));
+
+        // Signing out forgets it.
+        plex2.SignOut();
+        Assert.False(plex2.Watchlist.Known);
     }
 }

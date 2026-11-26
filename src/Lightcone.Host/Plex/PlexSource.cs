@@ -85,6 +85,20 @@ public sealed class PlexSource : IMediaSource
         }
     }
 
+    /// <summary>The account's watchlist on plex.tv (shared by every server of the account).</summary>
+    public PlexWatchlist? Watchlist { get; set; }
+
+    public bool? ServerWatchlist(MediaItem item) =>
+        item.Kind is MediaKind.Movie or MediaKind.Show ? Watchlist?.Has(item.Guid) : null;
+
+    public void OnWatchlist(MediaItem item, bool on)
+    {
+        if (item.Guid is { } g && item.Kind is MediaKind.Movie or MediaKind.Show)
+        {
+            Watchlist?.Set(g, on);
+        }
+    }
+
     public IReadOnlyList<Marker> MarkersOf(string itemId)
     {
         lock (_gate)
@@ -343,6 +357,12 @@ public sealed class PlexSource : IMediaSource
         {
             genres.AddRange(gs.EnumerateArray().Select(g => PlexClient.Str(g, "tag")).OfType<string>().Take(4));
         }
+        var collections = new List<string>();
+        if (m.TryGetProperty("Collection", out var cs) && cs.ValueKind == JsonValueKind.Array)
+        {
+            collections.AddRange(cs.EnumerateArray().Select(c => PlexClient.Str(c, "tag")).OfType<string>());
+        }
+        var rating = PlexClient.Num(m, "audienceRating") ?? PlexClient.Num(m, "rating");
         var duration = PlexClient.Num(m, "duration") is { } ms ? ms / 1000 : (double?)null;
         var added = PlexClient.Num(m, "addedAt") is { } a ? DateTimeOffset.FromUnixTimeSeconds((long)a).UtcDateTime : DateTime.MinValue;
         string? parent = null, parentTitle = null, subtitle = null;
@@ -402,6 +422,10 @@ public sealed class PlexSource : IMediaSource
             ParentTitle = parentTitle,
             Index = index,
             Season = season,
+            Guid = PlexClient.Str(m, "guid"),
+            Collections = collections,
+            ContentRating = PlexClient.Str(m, "contentRating") is { Length: > 0 } cr ? cr : null,
+            Rating = rating is > 0 and <= 10 ? Math.Round(rating.Value, 1) : null,
         };
     }
 

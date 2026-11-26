@@ -15,7 +15,11 @@ public partial class LibraryScreen : Screen
     private readonly string _title;
     private SortKey _sort = SortKey.Title;
     private bool _descending;
+    private bool _collections;
     private Control? _first;
+
+    /// <summary>Movies and Shows can list their collections instead of every title.</summary>
+    private bool HasCollections => _kind is MediaKind.Movie or MediaKind.Show;
 
     private static readonly (SortKey Key, string Label)[] Sorts =
     [
@@ -33,21 +37,27 @@ public partial class LibraryScreen : Screen
     }
 
     public override IEnumerable<(string Action, string Label)> Hints =>
-        [(Pad.Secondary, "Sort: " + Sorts.First(s => s.Key == _sort).Label), (Pad.Switch, "Search")];
+        _collections
+            ? [(Pad.Tertiary, "All " + _title.ToLowerInvariant()), (Pad.Switch, "Search")]
+            : HasCollections
+                ? [(Pad.Secondary, "Sort: " + Sorts.First(s => s.Key == _sort).Label), (Pad.Tertiary, "Collections"), (Pad.Switch, "Search")]
+                : [(Pad.Secondary, "Sort: " + Sorts.First(s => s.Key == _sort).Label), (Pad.Switch, "Search")];
 
     private bool ListView => Desktop && Host.Settings.DesktopView == "list";
 
     protected override void Build()
     {
         _first = null;
-        var items = Host.Library.Section(_kind, _sort, _descending);
+        var items = _collections ? Host.Library.Collections(_kind) : Host.Library.Section(_kind, _sort, _descending);
         var col = Column(Desktop ? 12 : 16);
         AddChild(col);
         var head = new HBoxContainer();
         head.AddThemeConstantOverride("separation", 14);
         col.AddChild(head);
-        head.AddChild(UiTheme.Label(UiTheme.Mono ? _title.ToUpperInvariant() : _title, Desktop ? UiTheme.TitleSize - 8 : UiTheme.TitleSize - 4, UiTheme.Text));
-        var count = UiTheme.Label($"{items.Count} {(items.Count == 1 ? "item" : "items")}", UiTheme.SmallSize + 1, UiTheme.Dim);
+        var heading = _collections ? $"{_title} · Collections" : _title;
+        head.AddChild(UiTheme.Label(UiTheme.Mono ? heading.ToUpperInvariant() : heading, Desktop ? UiTheme.TitleSize - 8 : UiTheme.TitleSize - 4, UiTheme.Text));
+        var noun = _collections ? (items.Count == 1 ? "collection" : "collections") : items.Count == 1 ? "item" : "items";
+        var count = UiTheme.Label($"{items.Count} {noun}", UiTheme.SmallSize + 1, UiTheme.Dim);
         count.SizeFlagsVertical = SizeFlags.ShrinkCenter;
         head.AddChild(count);
         head.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
@@ -55,11 +65,20 @@ public partial class LibraryScreen : Screen
         {
             BuildToolbar(head);
         }
-        else
+        else if (!_collections)
         {
             var sortLabel = UiTheme.Label($"Sorted by {Sorts.First(s => s.Key == _sort).Label.ToLowerInvariant()}{(_descending ? ", newest first" : "")}", UiTheme.SmallSize + 1, UiTheme.Dim);
             sortLabel.SizeFlagsVertical = SizeFlags.ShrinkCenter;
             head.AddChild(sortLabel);
+        }
+        if (items.Count == 0 && _collections)
+        {
+            col.AddChild(UiTheme.Label("No collections yet. Open a movie or show and pick Collections… to start one, or turn on automatic collections in Settings → Library.",
+                UiTheme.FontSize - 1, UiTheme.Dim, wrap: true));
+            var back = new ActionButton("All " + _title.ToLowerInvariant(), ToggleCollections, "Show every title");
+            col.AddChild(back);
+            _first = back;
+            return;
         }
         if (items.Count == 0)
         {
@@ -69,7 +88,7 @@ public partial class LibraryScreen : Screen
             _first = go;
             return;
         }
-        if (ListView)
+        if (ListView && !_collections)
         {
             col.AddChild(BuildTable(items));
             return;
@@ -95,6 +114,16 @@ public partial class LibraryScreen : Screen
 
     private void BuildToolbar(HBoxContainer head)
     {
+        if (HasCollections)
+        {
+            var coll = new Button { Text = "Collections", TooltipText = "Show collections (X)", ToggleMode = true, ButtonPressed = _collections };
+            coll.Pressed += ToggleCollections;
+            head.AddChild(coll);
+            if (_collections)
+            {
+                return;
+            }
+        }
         var sort = new OptionButton { TooltipText = "Sort by" };
         foreach (var (key, label) in Sorts)
         {
@@ -187,9 +216,21 @@ public partial class LibraryScreen : Screen
 
     public override void FocusDefault() => _first?.GrabFocus();
 
+    private void ToggleCollections()
+    {
+        _collections = !_collections;
+        Rebuild();
+        App.UpdateChrome();
+    }
+
     public override void OnAction(string action)
     {
-        if (action != Pad.Secondary)
+        if (action == Pad.Tertiary && HasCollections)
+        {
+            ToggleCollections();
+            return;
+        }
+        if (action != Pad.Secondary || _collections)
         {
             return;
         }

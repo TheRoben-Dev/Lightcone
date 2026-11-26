@@ -167,6 +167,7 @@ public partial class PosterArt : Control
         MediaKind.Movie => "▶",
         MediaKind.Show or MediaKind.Episode => "▤",
         MediaKind.Album or MediaKind.Track or MediaKind.Artist => "♪",
+        MediaKind.Collection => "▦",
         _ => "•",
     };
 

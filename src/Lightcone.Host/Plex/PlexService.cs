@@ -20,6 +20,8 @@ public sealed class PlexService
         _cacheDir = Path.Combine(dataDir, "plex");
         Account = PlexAccount.Load(_accountFile);
         Client = new PlexClient(http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(3) }, Account.ClientId);
+        Watchlist = new PlexWatchlist(Client, Path.Combine(_cacheDir, "watchlist.json")) { Token = () => Account.Token };
+        Watchlist.Changed += () => _library.NotifyChanged();
         foreach (var s in Account.Servers)
         {
             AddSource(s);
@@ -29,10 +31,14 @@ public sealed class PlexService
     public PlexAccount Account { get; private set; }
     public PlexClient Client { get; }
 
+    /// <summary>The account's plex.tv watchlist, synced with Lightcone's.</summary>
+    public PlexWatchlist Watchlist { get; }
+
     public IReadOnlyCollection<PlexSource> Sources => _sources.Values;
 
     /// <summary>Refreshes every server in the background (at startup and from Sources).</summary>
-    public Task RefreshAllAsync(CancellationToken ct = default) => Task.WhenAll(_sources.Values.Select(s => s.RefreshAsync(ct)));
+    public Task RefreshAllAsync(CancellationToken ct = default) =>
+        Task.WhenAll(_sources.Values.Select(s => s.RefreshAsync(ct)).Append(Watchlist.RefreshAsync(ct)));
 
     /// <summary>
     /// Waits for the code to be entered at plex.tv/link (polling every 2 s until it expires).
@@ -66,6 +72,7 @@ public sealed class PlexService
         Account = Account with { Token = token, Name = name };
         Account.Save(_accountFile);
         AppLog.Info($"plex: signed in as {name}");
+        _ = Watchlist.RefreshAsync(ct);
         return await Client.ServersAsync(token, ct);
     }
 
@@ -110,6 +117,7 @@ public sealed class PlexService
         }
         Account = new PlexAccount { ClientId = Account.ClientId };
         Account.Save(_accountFile);
+        Watchlist.Clear();
         AppLog.Info("plex: signed out");
     }
 
@@ -117,6 +125,7 @@ public sealed class PlexService
     {
         var source = new PlexSource(Client, entry, Path.Combine(_cacheDir, entry.MachineId + ".json"));
         source.EntryChanged += OnEntryChanged;
+        source.Watchlist = Watchlist;
         _sources[entry.MachineId] = source;
         _library.Add(source);
         return source;

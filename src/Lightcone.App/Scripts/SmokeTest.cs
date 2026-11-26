@@ -39,6 +39,20 @@ public partial class SmokeTest : Node
         Step("movies-sort", () => Tap(JoyButton.Y), wait: 1.0, tab: "Movies");
         Step("movies-sort-title", () => Tap(JoyButton.Y), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
         Step("movie-detail", () => Tap(JoyButton.A), wait: 1.2, expect: "Play", tab: "Movies");
+        // X: on the watchlist (Home gets a Watchlist row). Collections…: start one with this film.
+        Step("movie-watchlist", () => Tap(JoyButton.X), wait: 1.0, expect: "Play", tab: "Movies");
+        Step("movie-collections", () =>
+        {
+            FindFocusable(GetTree().Root, "A Field of Lanterns: collections")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "New collection");
+        Step("collection-name", () => Tap(JoyButton.A), wait: 1.0);
+        Step("collection-made", () =>
+        {
+            TypeText("Faves");
+            Tap(JoyButton.Start);
+        }, wait: 1.2, tab: "Movies");
+        Step("movie-detail-again", () => FindFocusable(GetTree().Root, "A Field of Lanterns: play")?.GrabFocus(), wait: 0.6, expect: "Play", tab: "Movies");
         // A on Play: the player, full screen, playing a generated test pattern.
         Step("player", () => Tap(JoyButton.A), wait: 2.5, tab: "Movies");
         // Triggers seek (the generated sample streams can't actually jump; the OSD still shows).
@@ -52,6 +66,14 @@ public partial class SmokeTest : Node
         // the sample streams play in real time, and resume starts after 30 s).
         Step("player-back", () => Tap(JoyButton.B), wait: 1.2, expect: "Play", tab: "Movies");
         Step("detail-back", () => Tap(JoyButton.B), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
+        // X in Movies: collections (yours, the source's, automatic ones).
+        Step("movies-collections", () => Tap(JoyButton.X), wait: 1.2, expect: "Faves", tab: "Movies");
+        Step("collection-detail", () => Tap(JoyButton.A), wait: 1.2, expect: "Play", tab: "Movies");
+        Step("collection-titles", () => Tap(JoyButton.DpadDown), wait: 0.8, expect: "A Field of Lanterns", tab: "Movies");
+        Step("collection-back", () => Tap(JoyButton.B), wait: 1.0, expect: "Faves", tab: "Movies");
+        Step("movies-all", () => Tap(JoyButton.X), wait: 1.2, tab: "Movies");
+        Step("home-watchlist", () => Main.Instance.SwitchTab("Home"), wait: 1.2, tab: "Home");
+        Step("back-to-movies", () => Main.Instance.SwitchTab("Movies"), wait: 1.0, tab: "Movies");
         Step("shows", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Shows");
         Step("show-detail", () => Tap(JoyButton.A), wait: 1.2, tab: "Shows");
         Step("show-episodes", () => Tap(JoyButton.DpadDown), wait: 0.8, tab: "Shows");
@@ -93,10 +115,24 @@ public partial class SmokeTest : Node
         Step("playback-hwdec", () => Press("ui_right"), expect: "Decode video on the GPU");
         Step("playback-hwdec-back", () => Press("ui_left"), expect: "Decode video on the GPU");
         Step("playback-back", () => Press(Pad.Back), expect: "Playback");
+        Step("settings-library-row", () => Press("ui_down"), expect: "Library");
         Step("settings-appearance", () => Press("ui_down"), expect: "Appearance");
         Step("settings-sound", () => Press("ui_down"), expect: "Sound & feel");
         Step("sound-pane", () => Press(Pad.Accept), expect: "Short sounds when you move");
         Step("sound-back", () => Press(Pad.Back), expect: "Sound & feel");
+        // Music is optional: off takes the tab away (and music out of Home and search).
+        Step("settings-library", () => FindFocusable(GetTree().Root, "Music, collections")?.GrabFocus(), expect: "Library");
+        Step("library-pane", () => Press(Pad.Accept), expect: "movies and TV first");
+        Step("music-off", () => Press("ui_right"), wait: 1.0, expect: "movies and TV first", tab: "Settings");
+        Step("music-off-home", () => Main.Instance.SwitchTab("Home"), wait: 1.2, tab: "Home");
+        Step("music-on", () =>
+        {
+            Main.Instance.SwitchTab("Settings");
+            FindFocusable(GetTree().Root, "Music, collections")?.GrabFocus();
+            Press(Pad.Accept);
+            Press("ui_left");
+        }, wait: 1.2, expect: "movies and TV first", tab: "Settings");
+        Step("library-back", () => Press(Pad.Back), expect: "Library");
         Step("about", () => FindFocusable(GetTree().Root, "Where Lightcone keeps its files")?.GrabFocus(), expect: "About");
         Step("about-pane", () => Press(Pad.Accept), expect: "Open the app log");
         Step("log-page", () => Press(Pad.Accept), expect: "Log lines");
@@ -141,6 +177,8 @@ public partial class SmokeTest : Node
         Step("desktop-list-view", () => Click(FindFocusable(GetTree().Root, "List")), wait: 1.2, tab: "Movies");
         Step("desktop-sort-year", () => SortColumn(1), wait: 1.0, tab: "Movies");
         Step("desktop-grid-view", () => Click(FindFocusable(GetTree().Root, "Grid")), wait: 1.2, tab: "Movies");
+        Step("desktop-collections", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
+        Step("desktop-all-titles", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
         Step("desktop-detail", () =>
         {
             FindFocusable(GetTree().Root, "Glass Orbit")?.GrabFocus();
