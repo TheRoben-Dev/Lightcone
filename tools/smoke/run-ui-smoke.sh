@@ -6,6 +6,7 @@
 #   tools/smoke/run-ui-smoke.sh <godot-mono-editor | exported Lightcone.x86_64> <out-dir>
 #
 # SMOKE_DRIVER=opengl3 to test the GLX path instead of EGL (opengl3_es, the default on Linux).
+# SMOKE_LIBMPV=lib/libmpv.so.2 to require that libmpv was loaded from a path ending that way.
 # SMOKE_THEME=<id> to start in another theme.
 set -euo pipefail
 GODOT=$(realpath "$1")
@@ -40,6 +41,11 @@ if grep -qE "Unhandled exception|System\.[A-Za-z.]*Exception|smoke: step .* fail
 fi
 if ! grep -q "loaded: " "$OUT/app.log" 2>/dev/null; then
   echo "::error::nothing played during the UI smoke test (see app.log)"
+  exit 1
+fi
+# SMOKE_LIBMPV=<path suffix>: fail unless playback used that libmpv (the bundled one, say).
+if [ -n "${SMOKE_LIBMPV:-}" ] && ! grep -q "from [^ ]*${SMOKE_LIBMPV}, render" "$OUT/app.log"; then
+  echo "::error::playback did not use ${SMOKE_LIBMPV}: $(grep -o 'mpv .* from [^,]*' "$OUT/app.log" | head -1)"
   exit 1
 fi
 shots=$(ls "$OUT"/*.png 2>/dev/null | wc -l)

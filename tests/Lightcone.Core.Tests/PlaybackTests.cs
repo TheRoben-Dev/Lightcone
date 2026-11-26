@@ -105,8 +105,57 @@ public class PlaybackTests
         }
         Assert.True(drawn, "no frame rendered");
 
+        // The restart from the initial start can still be queued, so wait for the one after the seek.
         player.Seek(2);
-        Assert.NotNull(player.WaitFor(MpvEventId.PlaybackRestart, TimeSpan.FromSeconds(10)));
+        var seekDone = DateTime.UtcNow.AddSeconds(10);
+        while ((player.Position ?? -1) < 1.5 && DateTime.UtcNow < seekDone)
+        {
+            player.WaitFor(MpvEventId.PlaybackRestart, TimeSpan.FromSeconds(1));
+        }
         Assert.InRange(player.Position ?? -1, 1.5, 3.5);
+    }
+
+    [MpvFact]
+    public void DecodesEveryPromisedFormat()
+    {
+        using var mpv = new MpvPlayer(new Dictionary<string, string> { ["vo"] = "null", ["ao"] = "null" });
+        Assert.Empty(Codecs.Missing(mpv.GetString("decoder-list")));
+    }
+
+    [Fact]
+    public void ReportsMissingCodecs()
+    {
+        const string json = """[{"codec":"h264","driver":"h264"},{"codec":"truehd","driver":"truehd"}]""";
+        var missing = Codecs.Missing(json);
+        Assert.DoesNotContain("h264", missing);
+        Assert.DoesNotContain("truehd", missing);
+        Assert.Contains("hevc", missing);
+        Assert.Equal("HEVC", Codecs.Display("hevc"));
+        Assert.Equal("PCM", Codecs.Display("pcm_s24le"));
+    }
+
+    [MpvFact]
+    public void LoadsTextSubtitles()
+    {
+        var dir = Directory.CreateTempSubdirectory("lightcone-subs").FullName;
+        try
+        {
+            var srt = Path.Combine(dir, "a.srt");
+            File.WriteAllText(srt, "1\n00:00:00,000 --> 00:00:04,000\nHello\n");
+            var ass = Path.Combine(dir, "b.ass");
+            File.WriteAllText(ass, "[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, Bold, Italic, Alignment\nStyle: Default,Sans,40,&H00FFFFFF,0,0,2\n\n[Events]\nFormat: Layer, Start, End, Style, Text\nDialogue: 0,0:00:00.00,0:00:04.00,Default,{\\i1}Hi\n");
+            using var player = new MpvPlayer(new Dictionary<string, string> { ["vo"] = "null", ["ao"] = "null" });
+            player.Load("av://lavfi:testsrc=duration=5:size=320x240:rate=10");
+            Assert.NotNull(player.WaitFor(MpvEventId.FileLoaded, TimeSpan.FromSeconds(10)));
+            player.Command("sub-add", srt);
+            player.Command("sub-add", ass);
+            var subs = player.Tracks.Where(t => t.Kind == TrackKind.Subtitle).Select(t => t.Codec).ToList();
+            Assert.Contains("subrip", subs);
+            Assert.Contains("ass", subs);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
     }
 }

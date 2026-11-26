@@ -102,6 +102,12 @@ public partial class ScrollFollower : Node
         {
             target = bottom + Margin - view;
         }
+        // Near the top of the page (the hero, a detail page's buttons), go all the way up so the
+        // header art and titles above the focused control show again.
+        if (target < view * 0.4f && bottom + Margin <= view)
+        {
+            target = 0;
+        }
         var max = Math.Max(0, content.Size.Y - view);
         target = Math.Clamp(target, 0, max);
         if (Math.Abs(target - _pos) < 0.5f)

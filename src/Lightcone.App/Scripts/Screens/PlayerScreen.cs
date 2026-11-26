@@ -149,9 +149,9 @@ public partial class PlayerScreen : Screen
             row.AddChild(b);
             return b;
         }
-        B("⟲ 10", "Back 10 seconds (Left)", () => Svc.SeekBy(-10));
+        B($"⟲ {Host.Settings.SeekBack}", $"Back {Host.Settings.SeekBack} seconds (Left, hold to go faster)", () => Svc.Step(-1));
         _playButton = B("❚❚", "Play / pause (Space)", Svc.TogglePause);
-        B("10 ⟳", "Forward 10 seconds (Right)", () => Svc.SeekBy(10));
+        B($"{Host.Settings.SeekForward} ⟳", $"Forward {Host.Settings.SeekForward} seconds (Right, hold to go faster)", () => Svc.Step(1));
         row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
         B("Audio & subtitles", "Audio and subtitle tracks (A)", () => App.Push(new TrackPickerPage()));
         B("Mini player", "Keep playing in the mini player while you browse", App.MinimizePlayer);
@@ -257,9 +257,10 @@ public partial class PlayerScreen : Screen
             Input.MouseMode = show ? Input.MouseModeEnum.Visible : Input.MouseModeEnum.Hidden;
         }
         var d = Svc.Duration;
-        var pos = Svc.Position;
-        _time.Text = d is { } dd ? $"{MediaItem.FormatDuration(pos, true)} / {MediaItem.FormatDuration(dd, true)}" : MediaItem.FormatDuration(pos, true);
+        var pos = Svc.DisplayPosition;
         _bar.Fraction = d is > 0 ? (float)(pos / d.Value) : 0;
+        var clock = d is > 0 ? _bar.Shown * d.Value : pos;  // the clock rides along with the bar's glide
+        _time.Text = d is { } dd ? $"{MediaItem.FormatDuration(clock, true)} / {MediaItem.FormatDuration(dd, true)}" : MediaItem.FormatDuration(pos, true);
         _bar.Markers = Svc.Current is { } cur && d is > 0 ? Host.Library.MarkersOf(cur).Select(m => ((float)(m.Start / d.Value), (float)(m.End / d.Value))).ToList() : [];
         var marker = Svc.ActiveMarker;
         _skip.Visible = marker != null;
@@ -285,18 +286,17 @@ public partial class PlayerScreen : Screen
         {
             return;
         }
-        var step = Host.Settings.SeekStep;
         if (e.IsAction(Pad.Accept) && !e.IsEcho())
         {
             Svc.TogglePause();
         }
         else if (e.IsAction("ui_left") || e.IsAction(Pad.SeekBack))
         {
-            Svc.SeekBy(-step);
+            Svc.Step(-1);
         }
         else if (e.IsAction("ui_right") || e.IsAction(Pad.SeekForward))
         {
-            Svc.SeekBy(step);
+            Svc.Step(1);
         }
         else if (e.IsAction("ui_up") || e.IsAction("ui_down"))
         {
@@ -363,25 +363,53 @@ public partial class PlayerScreen : Screen
     public override void FocusDefault() => GetChild<Control>(0).GrabFocus();
 }
 
-/// <summary>Progress bar with intro/credit markers; click, tap or drag to seek.</summary>
+/// <summary>
+/// Progress bar with intro/credit markers; click, tap or drag to seek. Jumps (resume, skips) glide
+/// to the new spot with an ease-out that never takes longer than <see cref="SweepSeconds"/>,
+/// however far the jump, which also covers the moment the player needs to get there.
+/// </summary>
 public partial class SeekBar : Control
 {
+    /// <summary>Longest a jump glides, whatever the distance.</summary>
+    public const double SweepSeconds = 0.7;
+
     private float _fraction;
+    private float _shown;
+    private float _from;
+    private double _t = -1;  // seconds into the current glide; -1 = none
 
     public event Action<float>? Seek;
 
     public IReadOnlyList<(float Start, float End)> Markers { get; set; } = [];
+
+    /// <summary>Where the bar is drawn right now (part way through a glide).</summary>
+    public float Shown => _shown;
 
     public float Fraction
     {
         get => _fraction;
         set
         {
-            if (Math.Abs(value - _fraction) > 0.0005f)
+            if (Math.Abs(value - _fraction) <= 0.0005f)
             {
-                _fraction = value;
-                QueueRedraw();
+                return;
             }
+            // Playback creeps forward in tiny steps; anything bigger is a jump worth a glide.
+            if (Math.Abs(value - _shown) > 0.004f && Anim.Enabled)
+            {
+                if (_t < 0)
+                {
+                    _from = _shown;
+                    _t = 0;
+                }
+                // A new target mid-glide keeps the glide's clock, so it still ends on time.
+            }
+            else if (_t < 0)
+            {
+                _shown = value;
+            }
+            _fraction = value;
+            QueueRedraw();
         }
     }
 
@@ -391,16 +419,41 @@ public partial class SeekBar : Control
         MouseDefaultCursorShape = CursorShape.PointingHand;
     }
 
+    public override void _Process(double delta)
+    {
+        if (_t < 0)
+        {
+            return;
+        }
+        _t += delta;
+        var k = (float)Math.Min(1, _t / SweepSeconds);
+        var ease = 1 - (1 - k) * (1 - k) * (1 - k);  // ease-out cubic
+        _shown = Mathf.Lerp(_from, _fraction, ease);
+        if (k >= 1)
+        {
+            _shown = _fraction;
+            _t = -1;
+        }
+        QueueRedraw();
+    }
+
+    private void Jump(float f)
+    {
+        _t = -1;
+        _shown = f;
+        Seek?.Invoke(f);
+    }
+
     public override void _GuiInput(InputEvent e)
     {
         if (e is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } mb)
         {
-            Seek?.Invoke(Math.Clamp(mb.Position.X / Size.X, 0, 1));
+            Jump(Math.Clamp(mb.Position.X / Size.X, 0, 1));
             AcceptEvent();
         }
         else if (e is InputEventMouseMotion { ButtonMask: MouseButtonMask.Left } mm)
         {
-            Seek?.Invoke(Math.Clamp(mm.Position.X / Size.X, 0, 1));
+            Jump(Math.Clamp(mm.Position.X / Size.X, 0, 1));
             AcceptEvent();
         }
     }
@@ -414,7 +467,7 @@ public partial class SeekBar : Control
         {
             DrawRect(new Rect2(Size.X * s, y, Size.X * (e - s), h), new Color(1, 1, 1, 0.45f));
         }
-        DrawRect(new Rect2(0, y, Size.X * _fraction, h), UiTheme.Accent);
-        DrawCircle(new Vector2(Size.X * _fraction, Size.Y / 2), 9, UiTheme.Accent);
+        DrawRect(new Rect2(0, y, Size.X * _shown, h), UiTheme.Accent);
+        DrawCircle(new Vector2(Size.X * _shown, Size.Y / 2), 9, UiTheme.Accent);
     }
 }

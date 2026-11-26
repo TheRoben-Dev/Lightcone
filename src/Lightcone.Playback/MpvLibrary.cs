@@ -95,7 +95,13 @@ public static class MpvLibrary
     private static void Load()
     {
         var tried = new List<string>();
-        foreach (var c in Candidates(AppContext.BaseDirectory, CurrentOs, Environment.GetEnvironmentVariable("LIGHTCONE_LIBMPV")))
+        // The app binary's folder first (a Godot export keeps its .NET assemblies, and so
+        // AppContext.BaseDirectory, in a data_* subfolder), then the assemblies' folder.
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+        var candidates = Candidates(exeDir, CurrentOs, Environment.GetEnvironmentVariable("LIGHTCONE_LIBMPV"))
+            .Concat(Candidates(AppContext.BaseDirectory, CurrentOs, null))
+            .Distinct();
+        foreach (var c in candidates)
         {
             if (Path.IsPathRooted(c) && !File.Exists(c))
             {

@@ -157,7 +157,7 @@ public partial class Main : Control
         UiLayout.Apply(GetWindow(), host?.Settings.Layout, windowed);
         BuildChrome();
 
-        GetViewport().GuiFocusChanged += c => _hints?.SetHelp(c.HasMeta(Stepper.ExpandsMeta) ? "" : c.TooltipText.Split('\n')[0]);
+        GetViewport().GuiFocusChanged += c => _hints?.SetHelp(c.HasMeta(Stepper.ExpandsMeta) || c.HasMeta(PosterTile.NoHelp) ? "" : c.TooltipText.Split('\n')[0]);
         GetViewport().GuiFocusChanged += _ =>
         {
             if (Time.GetTicksMsec() - _navAtMs < 250)
@@ -292,8 +292,9 @@ public partial class Main : Control
             _header = new Header(TabNames);
             _header.TabClicked += i =>
             {
-                if (_stack.Count == 1)
+                if (CanSwitchTabs)
                 {
+                    PopAll();
                     SwitchTab(i);
                 }
             };
@@ -546,7 +547,7 @@ public partial class Main : Control
             }
             return;
         }
-        var current = AppUpdater.DisplayVersion(updater.CurrentVersion);
+        var current = updater.CurrentDisplay;
         if (release == null)
         {
             if (!silent)
@@ -560,7 +561,7 @@ public partial class Main : Control
         {
             return;
         }
-        var next = AppUpdater.DisplayVersion(release.Version);
+        var next = release.Display;
         if (!updater.CanSelfUpdate)
         {
             Toast($"Lightcone {next} is available. Re-run the installer to update this copy.");
@@ -581,7 +582,7 @@ public partial class Main : Control
         }
         _player.Stop();
         var updater = Host.Updater;
-        Busy($"Updating to {AppUpdater.DisplayVersion(release.Version)}…", (p, ct) => updater.InstallAsync(release, p, ct), Restart);
+        Busy($"Updating to {release.Display}…", (p, ct) => updater.InstallAsync(release, p, ct), Restart);
     }
 
     public void RollbackApp()
@@ -739,12 +740,14 @@ public partial class Main : Control
                 Feedback.Play(Cue.Back);
             }
         }
-        else if (e.IsActionPressed(Pad.TabPrev) && _stack.Count == 1)
+        else if (e.IsActionPressed(Pad.TabPrev) && CanSwitchTabs)
         {
+            PopAll();
             SwitchTab((_tab + TabNames.Length - 1) % TabNames.Length);
         }
-        else if (e.IsActionPressed(Pad.TabNext) && _stack.Count == 1)
+        else if (e.IsActionPressed(Pad.TabNext) && CanSwitchTabs)
         {
+            PopAll();
             SwitchTab((_tab + 1) % TabNames.Length);
         }
         else if (e.IsActionPressed(Pad.Switch) && !top.FullScreen && top is not SearchPage)
@@ -918,6 +921,12 @@ public partial class Main : Control
 
     private bool OverlayOpen => _stack.Any(x => x.IsOverlay);
 
+    /// <summary>
+    /// Bumpers and the header switch sections from any page (a detail page closes on the way),
+    /// but not from the full-screen player or a dialog on top.
+    /// </summary>
+    private bool CanSwitchTabs => _stack.Count > 0 && !_stack.Any(x => x.IsOverlay || x.FullScreen);
+
     public void Push(Screen screen)
     {
         AppLog.Info($"push {screen.GetType().Name} over {StackNames()}");
@@ -1024,7 +1033,7 @@ public partial class Main : Control
 
     public void UpdateChrome()
     {
-        _header?.SetTab(_tab, _stack.Count == 1);
+        _header?.SetTab(_tab, CanSwitchTabs);
         _sidebar?.SetCurrent(_tab, _stack.Count == 1);
         if (_stack.Count == 0 || _hints == null)
         {

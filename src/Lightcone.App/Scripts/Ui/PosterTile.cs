@@ -34,6 +34,12 @@ public partial class PosterTile : Button
         : item.Kind is MediaKind.Album or MediaKind.Track or MediaKind.Artist ? TileShape.Square
         : TileShape.Poster;
 
+    /// <summary>Meta on controls whose tooltip only identifies them (tests): no help line for it.</summary>
+    public const string NoHelp = "lc_no_help";
+
+    private readonly PosterArt _art;
+    private readonly Label _title;
+
     public PosterTile(MediaItem item, TileShape shape, double? progress, bool desktop, Action<MediaItem> open)
     {
         Item = item;
@@ -41,16 +47,25 @@ public partial class PosterTile : Button
         Flat = true;
         FocusMode = FocusModeEnum.All;
         TooltipText = item.Title + (item.Subtitle != null ? "\n" + item.Subtitle : "");
+        SetMeta(NoHelp, true);
+        // The art draws its own focus ring; the shared ring would also frame the caption.
+        SetMeta(FocusHighlight.OwnFocus, true);
+        foreach (var state in new[] { "normal", "hover", "pressed", "hover_pressed", "focus", "disabled" })
+        {
+            AddThemeStyleboxOverride(state, new StyleBoxEmpty());
+        }
         MouseDefaultCursorShape = CursorShape.PointingHand;
         var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
         col.AddThemeConstantOverride("separation", 6);
         AddChild(col);
-        col.AddChild(new PosterArt(item, size, progress, showTitle: item.Poster == null));
-        var title = UiTheme.Label(item.Title, desktop ? UiTheme.SmallSize + 1 : UiTheme.SmallSize + 3, UiTheme.Text);
-        title.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
-        title.CustomMinimumSize = new Vector2(size.X, 0);
-        title.MouseFilter = MouseFilterEnum.Ignore;
-        col.AddChild(title);
+        // The caption below names the item, so placeholder art shows only its kind.
+        _art = new PosterArt(item, size, progress, showTitle: false);
+        col.AddChild(_art);
+        _title = UiTheme.Label(item.Title, desktop ? UiTheme.SmallSize + 1 : UiTheme.SmallSize + 3, UiTheme.Text);
+        _title.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        _title.CustomMinimumSize = new Vector2(size.X, 0);
+        _title.MouseFilter = MouseFilterEnum.Ignore;
+        col.AddChild(_title);
         var detail = item.Subtitle ?? item.DurationText ?? "";
         if (progress is { } p && item.Duration is { } d)
         {
@@ -61,9 +76,19 @@ public partial class PosterTile : Button
         sub.CustomMinimumSize = new Vector2(size.X, 0);
         sub.MouseFilter = MouseFilterEnum.Ignore;
         col.AddChild(sub);
-        CustomMinimumSize = new Vector2(size.X, size.Y + 54);
+        // The button is as tall as art plus caption, whatever the fonts measure on this screen.
+        CustomMinimumSize = size;
+        col.MinimumSizeChanged += () => CustomMinimumSize = new Vector2(size.X, col.GetCombinedMinimumSize().Y);
         Pressed += () => open(item);
-        FocusEntered += () => Anim.FocusPop(this, 1.03f, press: false);
+        FocusEntered += () => SetFocused(true);
+        FocusExited += () => SetFocused(false);
+        Anim.FocusPop(this, 1.03f, press: false);
+    }
+
+    private void SetFocused(bool on)
+    {
+        _art.Focused = on;
+        _title.AddThemeColorOverride("font_color", on ? UiTheme.AccentText : UiTheme.Text);
     }
 
     /// <summary>Progress fraction for an item from the library's resume data.</summary>

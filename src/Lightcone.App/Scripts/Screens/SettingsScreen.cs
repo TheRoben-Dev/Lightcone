@@ -68,6 +68,13 @@ public partial class SettingsScreen : TwoPaneScreen
             ? $"Playback engine: libmpv {MpvLibrary.ApiVersion} from {MpvLibrary.LoadedFrom}"
             : "Playback engine not found: " + why;
         col.AddChild(UiTheme.Label(engine, UiTheme.SmallSize + 1, PlayerService.EngineAvailable(out _) ? UiTheme.Dim : UiTheme.Warn, wrap: true));
+        if (Codecs.MissingInLoadedLibrary() is { } missing)
+        {
+            var formats = missing.Count == 0
+                ? $"Decodes every supported format: {string.Join(", ", Codecs.Required.SelectMany(g => g.Codecs).Select(Codecs.Display).Distinct())}"
+                : "This libmpv can't decode: " + string.Join(", ", missing.Select(Codecs.Display));
+            col.AddChild(UiTheme.Label(formats, UiTheme.SmallSize, missing.Count == 0 ? UiTheme.Dim : UiTheme.Warn, wrap: true));
+        }
 
         var hw = new Stepper("Hardware decoding", HwdecPolicy.Choices, s.Hwdec, "Decode video on the GPU. Applies to the next thing you play.")
         {
@@ -102,14 +109,20 @@ public partial class SettingsScreen : TwoPaneScreen
         size.Changed += v => Host.SaveSettings(Host.Settings with { SubtitleScale = int.Parse(v) });
         Add(size);
 
-        var seek = new Stepper("Seek step", [("5", "5 seconds"), ("10", "10 seconds"), ("15", "15 seconds"), ("30", "30 seconds")],
-            new[] { 5, 10, 15, 30 }.OrderBy(x => Math.Abs(x - s.SeekStep)).First().ToString(),
-            "How far a trigger press, arrow key or the skip buttons jump. Hold a trigger to keep seeking.")
+        Stepper SeekStepper(string label, int value, int[] steps, string help, Func<int, AppSettings> apply)
         {
-            Expands = true,
-        };
-        seek.Changed += v => Host.SaveSettings(Host.Settings with { SeekStep = int.Parse(v) });
-        Add(seek);
+            var st = new Stepper(label, steps.Select(x => (x.ToString(), x < 60 ? $"{x} seconds" : $"{x / 60} minute{(x >= 120 ? "s" : "")}")).ToArray(),
+                steps.OrderBy(x => Math.Abs(x - value)).First().ToString(), help)
+            {
+                Expands = true,
+            };
+            st.Changed += v => Host.SaveSettings(apply(int.Parse(v)));
+            return st;
+        }
+        Add(SeekStepper("Skip back", s.SeekBack, [5, 10, 15, 30, 60], "How far left trigger, Left or J jumps back. Hold it to go faster.",
+            v => Host.Settings with { SeekBack = v }));
+        Add(SeekStepper("Skip forward", s.SeekForward, [10, 15, 30, 60, 120], "How far right trigger, Right or L jumps ahead. Hold it to go faster.",
+            v => Host.Settings with { SeekForward = v }));
 
         Add(new ActionButton("Play a file or URL…", () => App.Push(new TextEntryPage("File or URL", "", PlayPath,
             "A path on this computer (SD card and network shares too) or a stream URL.")),
@@ -291,12 +304,23 @@ public partial class SettingsScreen : TwoPaneScreen
     private void BuildUpdates(VBoxContainer col, Action<Control> Add)
     {
         var updater = Host.Updater;
-        col.AddChild(UiTheme.Label($"Lightcone {AppUpdater.DisplayVersion(updater.CurrentVersion)}", UiTheme.FontSize + 6, UiTheme.Text));
+        col.AddChild(UiTheme.Label($"Lightcone {updater.CurrentDisplay}", UiTheme.FontSize + 6, UiTheme.Text));
         Add(new ActionButton("Changelog", App.ShowChangelog, "What changed in each version of Lightcone."));
         if (updater.CanSelfUpdate)
         {
             Add(new ActionButton("Check for updates", () => App.CheckForAppUpdate(silent: false),
                 "Looks for a newer Lightcone on GitHub. Updates install in place and keep your library, progress and settings."));
+            var channel = new Stepper("Update channel", [("stable", "Releases"), ("test", "Test builds")], updater.TestChannel ? "test" : "stable",
+                "Releases: only finished versions. Test builds: every build published for testing too, so you get fixes first.")
+            {
+                Expands = true,
+            };
+            channel.Changed += v =>
+            {
+                Host.SaveSettings(Host.Settings with { UpdateChannel = v });
+                updater.TestChannel = v == "test";
+            };
+            Add(channel);
             Add(Toggle.Create("Check at startup", Host.Settings.CheckForUpdates,
                 on => Host.SaveSettings(Host.Settings with { CheckForUpdates = on }),
                 "Asks when a new version is out. Never interrupts playback."));

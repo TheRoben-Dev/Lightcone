@@ -4,7 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <Version>0.1.0</Version>
+    <!-- Test builds add VersionSuffix=test.<run> (from CI's environment): 0.2.0-test.57. -->
+    <VersionPrefix>0.2.0</VersionPrefix>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
     <!-- Lightcone runs on Linux (SteamOS, Bazzite, ...), Windows and macOS; the analyzer flags APIs missing on any of them. -->

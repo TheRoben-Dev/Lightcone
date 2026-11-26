@@ -35,7 +35,7 @@ public partial class DetailPage : Screen
             TileShape.Wide => new Vector2(420, 236),
             _ => new Vector2(240, 360),
         };
-        top.AddChild(new PosterArt(_item, Desktop ? art * 0.85f : art, PosterTile.ProgressOf(lib, _item), 14));
+        top.AddChild(new PosterArt(_item, Desktop ? art * 0.85f : art, PosterTile.ProgressOf(lib, _item), 14, showTitle: false));
         var info = Column(Desktop ? 8 : 12);
         top.AddChild(info);
         info.AddChild(UiTheme.Label(_item.Title, Desktop ? UiTheme.TitleSize - 4 : UiTheme.TitleSize + 2, UiTheme.Text, wrap: true));
@@ -68,6 +68,7 @@ public partial class DetailPage : Screen
         void Act(string label, Action a, string help)
         {
             var b = new ActionButton(label, a, help) { CustomMinimumSize = new Vector2(0, Desktop ? 42 : 54) };
+            b.SetMeta(PosterTile.NoHelp, true);  // the tooltip names it for tests; the label says it all
             actions.AddChild(b);
             buttons.Add(b);
         }
@@ -107,11 +108,12 @@ public partial class DetailPage : Screen
                 var progress = PosterTile.ProgressOf(lib, c);
                 var status = lib.Progress.IsWatched(c.Id) ? "Watched" : progress is { } p ? $"{p * 100:0}%" : c.DurationText;
                 var label = c.Index is { } n ? $"{n}.  {c.Title}" : c.Title;
-                var row = new ListRow(label, c.Kind == MediaKind.Episode ? c.DurationText ?? "" : c.Subtitle ?? "", status,
+                var row = new ListRow(label, c.Kind == MediaKind.Episode ? "" : c.Subtitle ?? "", status,
                     lib.Progress.IsWatched(c.Id) ? UiTheme.Good : UiTheme.Dim, onPress: () => MediaActions.Play(c), help: $"{c.Title}: play")
                 {
                     CustomMinimumSize = new Vector2(0, Desktop ? 48 : 60),
                 };
+                row.SetMeta(PosterTile.NoHelp, true);
                 col.AddChild(row);
                 rows.Add(row);
             }

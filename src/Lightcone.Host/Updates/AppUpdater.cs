@@ -9,7 +9,11 @@ using Lightcone.Core;
 
 namespace Lightcone.Host.Updates;
 
-public sealed record AppRelease(Version Version, string Tag, string TarballUrl, string SumsUrl, long Size, string Notes);
+/// <param name="TestBuild">The test build number for a test build ("v0.2.0-test.57"), null for a release.</param>
+public sealed record AppRelease(Version Version, string Tag, string TarballUrl, string SumsUrl, long Size, string Notes, int? TestBuild = null)
+{
+    public string Display => AppUpdater.DisplayVersion(Version, TestBuild);
+}
 
 /// <summary>A release package for one OS: the asset name and the app folder inside it.</summary>
 /// <param name="Zip">A .zip (Windows, macOS) rather than a .tar.gz (Linux).</param>
@@ -41,6 +45,9 @@ public sealed class AppUpdater
     public const string Repo = "TheRoben-Dev/Lightcone";
     public const string LatestApi = $"https://api.github.com/repos/{Repo}/releases/latest";
 
+    /// <summary>Recent releases and pre-releases (test builds), newest first.</summary>
+    public const string ReleasesApi = $"https://api.github.com/repos/{Repo}/releases?per_page=30";
+
     private static readonly string[] Repos = [Repo];
 
     /// <summary>The app binary in an install folder, or null.</summary>
@@ -51,12 +58,15 @@ public sealed class AppUpdater
 
     /// <param name="installDir">Folder holding Lightcone.x86_64 (Lightcone.exe); null = the running app's folder.</param>
     /// <param name="package">Which release package to use; null = this OS's.</param>
-    public AppUpdater(HttpClient? http = null, string? installDir = null, Version? current = null, UpdatePackage? package = null)
+    /// <param name="currentTest">The running build's test build number (with <paramref name="current"/>); null = a release.</param>
+    public AppUpdater(HttpClient? http = null, string? installDir = null, Version? current = null, UpdatePackage? package = null, int? currentTest = null)
     {
         Package = package ?? UpdatePackage.Here;
         _http = http ?? DefaultClient();
         InstallDir = installDir ?? DefaultInstallDir(Package);
         CurrentVersion = current ?? CurrentAppVersion();
+        CurrentTestBuild = current == null ? CurrentAppTestBuild() : currentTest;
+        TestChannel = IsTestBuild;
     }
 
     /// <summary>The running app's install folder: the executable's folder, or on macOS the .app bundle around it.</summary>
@@ -73,6 +83,20 @@ public sealed class AppUpdater
     public string InstallDir { get; }
     public UpdatePackage Package { get; }
     public Version CurrentVersion { get; }
+
+    /// <summary>This build's test build number, or null for a release build.</summary>
+    public int? CurrentTestBuild { get; }
+
+    public bool IsTestBuild => CurrentTestBuild != null;
+
+    /// <summary>"0.2.0", or "0.2.0 test 57" for a test build.</summary>
+    public string CurrentDisplay => DisplayVersion(CurrentVersion, CurrentTestBuild);
+
+    /// <summary>
+    /// Test channel: test builds (pre-releases) count as updates too. Defaults to on for a test
+    /// build, so a test build installed by hand keeps itself current; Settings can change it.
+    /// </summary>
+    public bool TestChannel { get; set; }
     public string PreviousDir => Trim(InstallDir) + ".previous";
 
     private static string Trim(string dir) => dir.TrimEnd('/', '\\');
@@ -114,6 +138,26 @@ public sealed class AppUpdater
 
     public static string DisplayVersion(Version v) => $"{v.Major}.{v.Minor}.{Math.Max(0, v.Build)}";
 
+    public static string DisplayVersion(Version v, int? testBuild) => DisplayVersion(v) + (testBuild is { } n ? $" test {n}" : "");
+
+    /// <summary>The running app's test build number (InformationalVersion "0.2.0-test.57+sha"), or null.</summary>
+    public static int? CurrentAppTestBuild() =>
+        ParseTestBuild(typeof(AppUpdater).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+
+    /// <summary>"v0.2.0-test.57", "0.2.0-test.57+abc" -> 57; anything else null.</summary>
+    public static int? ParseTestBuild(string? s)
+    {
+        var m = s == null ? null : System.Text.RegularExpressions.Regex.Match(s, @"-test\.(\d+)");
+        return m is { Success: true } && int.TryParse(m.Groups[1].Value, out var n) ? n : null;
+    }
+
+    /// <summary>
+    /// Ordering of builds: by version, and within a version the test builds (by number) come
+    /// before the release itself, so 0.2.0 test 57 &lt; 0.2.0 &lt; 0.2.1 test 1.
+    /// </summary>
+    public static bool IsNewer(Version v, int? test, Version than, int? thanTest) =>
+        v != than ? v > than : (test ?? int.MaxValue) > (thanTest ?? int.MaxValue);
+
     /// <summary>"v0.2.0", "0.2.0+abc123" -> 0.2.0. Null if not a version.</summary>
     public static Version? ParseVersion(string? s)
     {
@@ -130,30 +174,61 @@ public sealed class AppUpdater
         return Version.TryParse(s, out var v) ? new Version(v.Major, v.Minor, Math.Max(0, v.Build)) : null;
     }
 
-    /// <summary>Returns the latest release if it is newer than the running app, otherwise null.</summary>
+    /// <summary>
+    /// Returns the newest build if it is newer than the running app, otherwise null: the latest
+    /// release, or on the <see cref="TestChannel"/> the newest of the recent releases and test builds.
+    /// </summary>
     public async Task<AppRelease?> CheckAsync(CancellationToken ct = default)
     {
-        using var resp = await _http.GetAsync(LatestApi, ct);
+        using var resp = await _http.GetAsync(TestChannel ? ReleasesApi : LatestApi, ct);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return null;
         }
         resp.EnsureSuccessStatusCode();
-        var release = ParseRelease(await resp.Content.ReadAsStringAsync(ct), Package);
-        return release != null && release.Version > CurrentVersion ? release : null;
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        AppRelease? best;
+        if (TestChannel)
+        {
+            using var doc = JsonDocument.Parse(json);
+            best = null;
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (ParseRelease(el, Package, allowTest: true) is { } r && (best == null || IsNewer(r.Version, r.TestBuild, best.Version, best.TestBuild)))
+                {
+                    best = r;
+                }
+            }
+        }
+        else
+        {
+            best = ParseRelease(json, Package);
+        }
+        return best != null && IsNewer(best.Version, best.TestBuild, CurrentVersion, CurrentTestBuild) ? best : null;
     }
 
-    public static AppRelease? ParseRelease(string json, UpdatePackage? package = null)
+    public static AppRelease? ParseRelease(string json, UpdatePackage? package = null, bool allowTest = false)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return ParseRelease(doc.RootElement, package, allowTest);
+    }
+
+    /// <param name="allowTest">Accept test builds: pre-releases tagged "v0.2.0-test.57".</param>
+    public static AppRelease? ParseRelease(JsonElement root, UpdatePackage? package = null, bool allowTest = false)
     {
         package ??= UpdatePackage.Here;
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("draft", out var draft) && draft.GetBoolean() ||
-            root.TryGetProperty("prerelease", out var pre) && pre.GetBoolean())
+        if (root.TryGetProperty("draft", out var draft) && draft.GetBoolean())
         {
             return null;
         }
         var tag = root.GetProperty("tag_name").GetString() ?? "";
+        var pre = root.TryGetProperty("prerelease", out var p) && p.GetBoolean();
+        var test = ParseTestBuild(tag);
+        // A release is never a pre-release; a test build is always one, and only on the test channel.
+        if (pre != (test != null) || test != null && !allowTest)
+        {
+            return null;
+        }
         var version = ParseVersion(tag);
         if (version == null || !root.TryGetProperty("assets", out var assets))
         {
@@ -180,7 +255,7 @@ public sealed class AppUpdater
             return null;
         }
         var notes = root.TryGetProperty("body", out var body) ? body.GetString() ?? "" : "";
-        return new AppRelease(version, tag, tarball, sums, size, notes);
+        return new AppRelease(version, tag, tarball, sums, size, notes, test);
     }
 
     /// <summary>Only this repository's release downloads are accepted.</summary>

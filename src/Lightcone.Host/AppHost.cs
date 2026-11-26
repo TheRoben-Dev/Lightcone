@@ -54,8 +54,14 @@ public sealed record AppSettings
     /// <summary>Subtitle size relative to the default, in percent.</summary>
     public int SubtitleScale { get; init; } = 100;
 
-    /// <summary>Seconds a trigger press (or arrow key) seeks.</summary>
-    public int SeekStep { get; init; } = 10;
+    /// <summary>Seconds a back press (left trigger, Left, J) jumps. Held presses go faster.</summary>
+    public int SeekBack { get; init; } = 10;
+
+    /// <summary>Seconds a forward press (right trigger, Right, L) jumps. Held presses go faster.</summary>
+    public int SeekForward { get; init; } = 30;
+
+    /// <summary>Update channel: "stable" (releases) or "test" (test builds too); null = test for a test build, else stable.</summary>
+    public string? UpdateChannel { get; init; }
 
     /// <summary>Check GitHub Releases for a new Lightcone version at startup.</summary>
     public bool CheckForUpdates { get; init; } = true;
@@ -92,6 +98,10 @@ public sealed class AppHost
         Directory.CreateDirectory(Paths.Data);
         Settings = LoadJson<AppSettings>(Paths.SettingsFile) ?? new AppSettings();
         Updater = new AppUpdater(http);
+        if (Settings.UpdateChannel is { } channel)
+        {
+            Updater.TestChannel = channel == "test";
+        }
         Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile));
         ApplyDemo(Settings.DemoLibrary);
     }

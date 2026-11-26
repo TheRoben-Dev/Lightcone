@@ -29,6 +29,9 @@ public partial class SmokeTest : Node
         Step("home-down", () => Tap(JoyButton.DpadDown), tab: "Home");
         Step("home-right", () => Tap(JoyButton.DpadRight), tab: "Home");
         Step("home-stick", () => { Stick(1f, 0f); Stick(0f, 0f); }, tab: "Home");
+        // Back up to the hero: the page scrolls all the way to the top again.
+        Step("home-down-more", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, tab: "Home");
+        Step("home-up-top", () => Tap(JoyButton.DpadUp, 3), wait: 0.9, expect: "Play", tab: "Home");
         // Bumpers switch sections.
         Step("movies", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Movies");
         // Y cycles the sort.
@@ -60,9 +63,20 @@ public partial class SmokeTest : Node
         Step("album-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Music");
         Step("home-continue", () => Tap(JoyButton.LeftShoulder, 3), wait: 1.5, tab: "Home");
         // Search: the View button (or /) opens it; typing filters across the library.
-        Step("search", () => Tap(JoyButton.Back), wait: 1.0, expect: "Search field");
-        Step("search-type", () => TypeText("orbit"), wait: 1.2, expect: "Search field");
-        Step("search-results", () => Tap(JoyButton.DpadDown), wait: 0.8, expect: "Glass Orbit");
+        // The built-in keyboard: A types the focused key, Y deletes, X adds a space; a real keyboard types too.
+        Step("search", () => Tap(JoyButton.Back), wait: 1.0);
+        Step("search-osk", () =>
+        {
+            Tap(JoyButton.A);  // "q"
+            Tap(JoyButton.X);  // space
+            Tap(JoyButton.Y, 2);  // delete both
+        }, wait: 0.6);
+        Step("search-type", () => TypeText("orbit"), wait: 1.2);
+        Step("search-results", () =>
+        {
+            Tap(JoyButton.DpadLeft);  // wraps to the row's last key
+            Tap(JoyButton.DpadRight);  // and on to the results
+        }, wait: 0.8, expect: "Glass Orbit");
         Step("search-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
         Step("sources", () => Tap(JoyButton.LeftShoulder, 2), wait: 1.2, tab: "Sources");
         Step("settings", () => Tap(JoyButton.RightShoulder), wait: 1.2, expect: "Playback", tab: "Settings");

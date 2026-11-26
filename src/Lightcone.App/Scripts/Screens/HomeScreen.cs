@@ -61,7 +61,7 @@ public partial class HomeScreen : Screen
         row.AddThemeConstantOverride("separation", Desktop ? 22 : 30);
         panel.AddChild(row);
         var artSize = Desktop ? new Vector2(320, 180) : new Vector2(400, 225);
-        row.AddChild(new PosterArt(item, artSize, PosterTile.ProgressOf(lib, item), 14));
+        row.AddChild(new PosterArt(item, artSize, PosterTile.ProgressOf(lib, item), 14, showTitle: false));
         var text = Column(Desktop ? 8 : 10);
         text.Alignment = BoxContainer.AlignmentMode.Center;
         row.AddChild(text);
@@ -110,6 +110,8 @@ public partial class HomeScreen : Screen
             }
         }, $"{item.Title}: play") { CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54) };
         var details = new ActionButton("Details", () => App.Push(new DetailPage(item)), $"{item.Title}: details") { CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54) };
+        play.SetMeta(PosterTile.NoHelp, true);
+        details.SetMeta(PosterTile.NoHelp, true);
         buttons.AddChild(play);
         buttons.AddChild(details);
         return (panel, play, [play, details]);

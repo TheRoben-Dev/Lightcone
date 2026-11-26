@@ -14,7 +14,7 @@ if [ "$SRC" != "$DEST" ]; then
 fi
 chmod +x "$DEST/Lightcone.x86_64" "$DEST/lightcone"
 if ! "$DEST/lightcone" probe >/dev/null 2>&1; then
-  echo "Note: libmpv (the playback engine) wasn't found. Install mpv / libmpv from your distribution to play media."
+  echo "Note: the playback engine didn't pass its self-check. Run $DEST/lightcone probe for details."
 fi
 
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
