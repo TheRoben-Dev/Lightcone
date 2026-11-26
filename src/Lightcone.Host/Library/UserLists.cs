@@ -2,6 +2,9 @@ using System.Text.Json;
 
 namespace Lightcone.Host.Library;
 
+/// <summary>Audio and subtitle choices remembered for a show (or a movie).</summary>
+public sealed record TrackChoice(string? Audio, string? Subtitle, bool SubtitlesOff);
+
 /// <summary>A collection made in Lightcone: a name and the items in it, in the order added.</summary>
 public sealed record UserCollection(string Id, string Name, List<string> Items);
 
@@ -15,8 +18,9 @@ public sealed class UserLists
     private readonly object _gate = new();
     private Dictionary<string, DateTime> _watchlist;
     private List<UserCollection> _collections;
+    private Dictionary<string, TrackChoice> _tracks;
 
-    private sealed record FileModel(Dictionary<string, DateTime>? Watchlist, List<UserCollection>? Collections);
+    private sealed record FileModel(Dictionary<string, DateTime>? Watchlist, List<UserCollection>? Collections, Dictionary<string, TrackChoice>? Tracks = null);
 
     /// <param name="file">Where to keep them; null keeps them in memory only (tests).</param>
     public UserLists(string? file)
@@ -33,6 +37,28 @@ public sealed class UserLists
         }
         _watchlist = model?.Watchlist ?? new();
         _collections = model?.Collections ?? new();
+        _tracks = model?.Tracks ?? new();
+    }
+
+    // ---- remembered tracks ----
+
+    public TrackChoice? TrackChoice(string key)
+    {
+        lock (_gate)
+        {
+            return _tracks.GetValueOrDefault(key);
+        }
+    }
+
+    /// <summary>Updates what's remembered for a show or movie (null arguments keep the old value).</summary>
+    public void RememberTracks(string key, string? audio = null, string? subtitle = null, bool? subtitlesOff = null)
+    {
+        lock (_gate)
+        {
+            var old = _tracks.GetValueOrDefault(key) ?? new TrackChoice(null, null, false);
+            _tracks[key] = new TrackChoice(audio ?? old.Audio, subtitle ?? old.Subtitle, subtitlesOff ?? old.SubtitlesOff);
+            Save();
+        }
     }
 
     public event Action? Changed;
@@ -160,7 +186,7 @@ public sealed class UserLists
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
             var tmp = _file + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(new FileModel(_watchlist, _collections)));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(new FileModel(_watchlist, _collections, _tracks)));
             File.Move(tmp, _file, overwrite: true);
         }
         catch (IOException e)

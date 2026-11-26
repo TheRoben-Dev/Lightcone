@@ -115,4 +115,18 @@ public class LibraryListsTests : IDisposable
         // Watched out of order: up next follows the last watched episode (like Plex's On Deck).
         Assert.Equal(eps.Count > 4 ? [eps[4].Id] : [], lib.UpNext().Select(e => e.Id));
     }
+
+    [Fact]
+    public void RemembersTrackChoicesPerShow()
+    {
+        var file = Path.Combine(_dir, "lists.json");
+        var lists = new UserLists(file);
+        lists.RememberTracks("show1", audio: "jpn");
+        lists.RememberTracks("show1", subtitle: "eng", subtitlesOff: false);
+        lists.RememberTracks("show2", subtitlesOff: true);
+        var again = new UserLists(file);
+        Assert.Equal(new TrackChoice("jpn", "eng", false), again.TrackChoice("show1"));
+        Assert.Equal(new TrackChoice(null, null, true), again.TrackChoice("show2"));
+        Assert.Null(again.TrackChoice("movie"));
+    }
 }
