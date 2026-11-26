@@ -181,6 +181,7 @@ public partial class Main : Control
         Host!.Library.Changed += () => Callable.From(RefreshLibraryScreens).CallDeferred();
         // Plex servers show what was saved at once; this brings them up to date in the background.
         _ = Host.Plex.RefreshAllAsync();
+        _ = Host.Jellyfin.RefreshAllAsync();
         _player.Changed += () => Callable.From(UpdatePlaying).CallDeferred();
 
         if (args.Contains("--open=appearance"))
@@ -1118,7 +1119,7 @@ public partial class Main : Control
     public static bool IsUserFacing(Exception e) =>
         e is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException
             or InvalidDataException or HttpRequestException or KeyNotFoundException or TaskCanceledException
-            or System.Text.Json.JsonException or Lightcone.Host.Plex.PlexAuthException;
+            or System.Text.Json.JsonException or Lightcone.Host.Plex.PlexAuthException or Lightcone.Host.Jellyfin.JellyfinAuthException;
 
     public void Confirm(string message, string yes, Action onYes) => Push(new ConfirmPage(message, yes, onYes));
 

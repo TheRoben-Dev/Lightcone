@@ -266,7 +266,8 @@ public partial class PlayerScreen : Screen
         _skip.Visible = marker != null;
         if (marker != null)
         {
-            _skip.Text = Desktop ? marker.Label : $"{Pad.Glyph(Pad.Secondary)}  {marker.Label}";
+            var label = Svc.SkipLabel ?? marker.Label;
+            _skip.Text = Desktop ? label : $"{Pad.Glyph(Pad.Secondary)}  {label}";
         }
         if (_playButton != null)
         {

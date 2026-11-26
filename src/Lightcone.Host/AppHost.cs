@@ -66,6 +66,9 @@ public sealed record AppSettings
     /// <summary>Seconds a forward press (right trigger, Right, L) jumps. Held presses go faster.</summary>
     public int SeekForward { get; init; } = 30;
 
+    /// <summary>Jump past marked intros without a press.</summary>
+    public bool AutoSkipIntro { get; init; }
+
     /// <summary>Update channel: "stable" (releases) or "test" (test builds too); null = test for a test build, else stable.</summary>
     public string? UpdateChannel { get; init; }
 
@@ -97,6 +100,9 @@ public sealed class AppHost
     /// <summary>The Plex account and its servers (sources in <see cref="Library"/>).</summary>
     public Plex.PlexService Plex { get; }
 
+    /// <summary>Jellyfin servers (sources in <see cref="Library"/>).</summary>
+    public Jellyfin.JellyfinService Jellyfin { get; }
+
     /// <summary>Raised after settings are saved (the app re-applies what changed).</summary>
     public event Action<AppSettings>? SettingsChanged;
 
@@ -118,6 +124,7 @@ public sealed class AppHost
         };
         ApplyDemo(Settings.DemoLibrary);
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
+        Jellyfin = new Jellyfin.JellyfinService(Library, Paths.Config, Paths.Data, http);
     }
 
     /// <summary>Adds or removes the sample library.</summary>

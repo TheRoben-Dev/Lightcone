@@ -65,7 +65,7 @@ public partial class HomeScreen : Screen
         var text = Column(Desktop ? 8 : 10);
         text.Alignment = BoxContainer.AlignmentMode.Center;
         row.AddChild(text);
-        text.AddChild(UiTheme.Label(resume ? "CONTINUE WATCHING" : "NEW IN YOUR LIBRARY", UiTheme.SmallSize, UiTheme.AccentText));
+        text.AddChild(UiTheme.Label(resume ? (lib.PositionOf(item) != null ? "CONTINUE WATCHING" : "UP NEXT") : "NEW IN YOUR LIBRARY", UiTheme.SmallSize, UiTheme.AccentText));
         var title = UiTheme.Label(item.Subtitle != null && item.Kind == MediaKind.Episode ? item.Subtitle.Split(" · ")[0] : item.Title,
             Desktop ? UiTheme.TitleSize - 6 : UiTheme.TitleSize, UiTheme.Text);
         title.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;

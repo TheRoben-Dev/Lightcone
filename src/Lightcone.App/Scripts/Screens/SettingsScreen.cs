@@ -145,6 +145,9 @@ public partial class SettingsScreen : TwoPaneScreen
             v => Host.Settings with { SeekBack = v }));
         Add(SeekStepper("Skip forward", s.SeekForward, [10, 15, 30, 60, 120], "How far right trigger, Right or L jumps ahead. Hold it to go faster.",
             v => Host.Settings with { SeekForward = v }));
+        Add(Toggle.Create("Skip intros automatically", Host.Settings.AutoSkipIntro, on => Host.SaveSettings(Host.Settings with { AutoSkipIntro = on }),
+            "When the server marks an episode's intro, jump past it without pressing anything.",
+            "Intros are skipped by themselves (a note says so).", "A Skip intro button shows; press Y to skip."));
 
         Add(new ActionButton("Play a file or URL…", () => App.Push(new TextEntryPage("File or URL", "", PlayPath,
             "A path on this computer (SD card and network shares too) or a stream URL.")),

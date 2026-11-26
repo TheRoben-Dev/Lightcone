@@ -27,7 +27,7 @@ The mode is picked automatically (Controller in Game Mode / Big Picture, Desktop
 | 1 ✅ | Scaffold: Core/Host/Playback/CLI/App, both UI modes, libmpv player (GL texture path, software fallback), settings, self-update, Steam shortcut, CI with UI smoke tests, Linux/Windows/macOS builds |
 | 2 ✅ | libmpv bundled in every release (slim Steam Runtime build for Linux, pinned DLL for Windows, dylibs in the .app), Deck hardware-decoding bench, PGS check |
 | 3 | Local folders (SD cards and network shares included) with TMDB / MusicBrainz metadata and artwork |
-| 4 | Plex (done in 0.3.0), then Jellyfin: sign in, libraries, continue watching, progress sync, intro/credits markers |
+| 4 | Plex (0.3.0), watchlist, collections and optional music (0.4.0), Jellyfin (0.5.0): sign in, libraries, continue watching, progress sync, intro/credits skipping |
 | 5 | Music: queue, shuffle, gapless, album/artist views, background playback |
 | later | DLNA / UPnP discovery |
 

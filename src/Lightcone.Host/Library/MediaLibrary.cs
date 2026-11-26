@@ -107,6 +107,7 @@ public sealed class MediaLibrary
     private void OnSourceChanged()
     {
         _collections = null;
+        _byParent = null;
         Changed?.Invoke();
     }
 
@@ -122,10 +123,36 @@ public sealed class MediaLibrary
 
     /// <summary>Top-level items of a section: movies, shows, albums (tracks and episodes live under their parent).</summary>
     public IReadOnlyList<MediaItem> Section(MediaKind kind, SortKey sort = SortKey.Title, bool descending = false) =>
-        Sort(All.Where(i => i.Kind == kind && Visible(i)), sort, descending);
+        SortWithShows(All.Where(i => i.Kind == kind && Visible(i)), sort, descending);
 
     public IReadOnlyList<MediaItem> Children(string parentId) =>
-        IsCollection(parentId) ? CollectionItems(parentId) : All.Where(i => i.ParentId == parentId).OrderBy(i => i.Season ?? 0).ThenBy(i => i.Index ?? int.MaxValue).ThenBy(i => i.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+        IsCollection(parentId) ? CollectionItems(parentId) : (_byParent ??= BuildByParent()).GetValueOrDefault(parentId) ?? [];
+
+    // Episodes by show and tracks by album, in order (rebuilt when sources change).
+    private volatile Dictionary<string, IReadOnlyList<MediaItem>>? _byParent;
+
+    private Dictionary<string, IReadOnlyList<MediaItem>> BuildByParent() =>
+        All.Where(i => i.ParentId != null).GroupBy(i => i.ParentId!).ToDictionary(g => g.Key, g => (IReadOnlyList<MediaItem>)g
+            .OrderBy(i => i.Season ?? 0).ThenBy(i => i.Index ?? int.MaxValue).ThenBy(i => i.Title, StringComparer.CurrentCultureIgnoreCase).ToList());
+
+    /// <summary>Episodes of a show not watched yet (null for anything else).</summary>
+    public int? UnwatchedCount(MediaItem item) =>
+        item.Kind == MediaKind.Show ? Children(item.Id).Count(e => e.Playable && !IsWatched(e)) : null;
+
+    /// <summary>When something new last arrived: a show's newest episode, else the item itself.</summary>
+    public DateTime LastAdded(MediaItem item) =>
+        item.Kind == MediaKind.Show && Children(item.Id) is { Count: > 0 } eps ? eps.Max(e => e.Added) is var e2 && e2 > item.Added ? e2 : item.Added : item.Added;
+
+    private IReadOnlyList<MediaItem> SortWithShows(IEnumerable<MediaItem> items, SortKey sort, bool descending)
+    {
+        if (sort != SortKey.Added)
+        {
+            return Sort(items, sort, descending);
+        }
+        var titleCmp = StringComparer.CurrentCultureIgnoreCase;
+        var keyed = items.Select(i => (Item: i, At: LastAdded(i)));
+        return (descending ? keyed.OrderByDescending(x => x.At) : keyed.OrderBy(x => x.At)).ThenBy(x => SortTitle(x.Item.Title), titleCmp).Select(x => x.Item).ToList();
+    }
 
     public static IReadOnlyList<MediaItem> Sort(IEnumerable<MediaItem> items, SortKey sort, bool descending)
     {
@@ -223,6 +250,40 @@ public sealed class MediaLibrary
             .Where(i => i.Playable && Visible(i) && PositionOf(i) != null && !IsWatched(i)).ToList();
     }
 
+    /// <summary>The episode or track after this one in its show or album, if any.</summary>
+    public MediaItem? NextAfter(MediaItem item) =>
+        item.ParentId == null ? null : Children(item.ParentId).SkipWhile(c => c.Id != item.Id).Skip(1).FirstOrDefault(c => c.Playable);
+
+    /// <summary>
+    /// Next episodes of shows being watched: the first unwatched episode after the last watched
+    /// one, for shows with nothing in progress. Most recently watched first.
+    /// </summary>
+    public IReadOnlyList<MediaItem> UpNext()
+    {
+        var result = new List<(MediaItem Next, DateTime At, DateTime Added)>();
+        var shows = All.Where(i => i.Kind == MediaKind.Show && Visible(i)).GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.First());
+        foreach (var show in shows.Values)
+        {
+            var eps = Children(show.Id).Where(e => e.Playable).ToList();
+            if (eps.Count == 0)
+            {
+                continue;
+            }
+            var watched = eps.Select(IsWatched).ToList();
+            var last = watched.LastIndexOf(true);
+            if (last < 0 || eps.Any(e => !IsWatched(e) && PositionOf(e) != null))
+            {
+                continue;
+            }
+            var next = eps.Skip(last + 1).FirstOrDefault(e => !IsWatched(e));
+            if (next != null)
+            {
+                result.Add((next, Progress.WatchedAt(eps[last].Id) ?? DateTime.MinValue, show.Added));
+            }
+        }
+        return result.OrderByDescending(r => r.At).ThenByDescending(r => r.Added).Select(r => r.Next).ToList();
+    }
+
     public IReadOnlyList<Marker> MarkersOf(MediaItem item) =>
         _sources.FirstOrDefault(s => s.Id == item.SourceId)?.MarkersOf(item.Id) ?? [];
 
@@ -261,7 +322,8 @@ public sealed class MediaLibrary
     public IReadOnlyList<HomeRow> HomeRows(int perRow = 20)
     {
         var rows = new List<HomeRow>();
-        var resume = InProgress().Take(perRow).ToList();
+        // In progress first, then the next episode of shows being watched.
+        var resume = InProgress().Concat(UpNext()).DistinctBy(i => i.Id).Take(perRow).ToList();
         if (resume.Count > 0)
         {
             rows.Add(new HomeRow("continue", "Continue watching", resume, Wide: true));
@@ -272,7 +334,7 @@ public sealed class MediaLibrary
             rows.Add(new HomeRow("watchlist", "Watchlist", watchlist));
         }
         var recent = All.Where(i => i.Kind is MediaKind.Movie or MediaKind.Show or MediaKind.Album && Visible(i))
-            .OrderByDescending(i => i.Added).Take(perRow).ToList();
+            .OrderByDescending(LastAdded).Take(perRow).ToList();
         if (recent.Count > 0)
         {
             rows.Add(new HomeRow("recent", "Recently added", recent));
@@ -288,7 +350,7 @@ public sealed class MediaLibrary
         {
             foreach (var kind in kinds)
             {
-                var items = s.Items.Where(i => i.Kind == kind).OrderByDescending(i => i.Added).Take(perRow).ToList();
+                var items = s.Items.Where(i => i.Kind == kind).OrderByDescending(LastAdded).Take(perRow).ToList();
                 if (items.Count > 0)
                 {
                     var what = kind switch { MediaKind.Movie => "Movies", MediaKind.Show => "Shows", _ => "Music" };

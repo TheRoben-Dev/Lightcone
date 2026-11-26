@@ -60,6 +60,8 @@ public partial class PlayerService : Node
     /// <summary>The intro/credits marker under the playhead, if any.</summary>
     public Marker? ActiveMarker { get; private set; }
 
+    private (string, double)? _autoSkipped;
+
     public IReadOnlyList<MediaTrack> Tracks { get; private set; } = [];
 
     /// <summary>hwdec mpv actually uses ("vaapi", "videotoolbox", "no"...), for the info panel and the log.</summary>
@@ -190,6 +192,7 @@ public partial class PlayerService : Node
         AppLog.Info($"play {item.Id} '{item.Title}' from {start:0}s");
         try
         {
+            ApplyTrackChoice(item);
             _mpv!.Load(item.PlayUrl, start);
             _mpv.Paused = false;
         }
@@ -262,8 +265,21 @@ public partial class PlayerService : Node
         _seekAt = Time.GetTicksMsec();
     }
 
+    /// <summary>During an episode's end credits with another episode after it: what the skip button plays instead.</summary>
+    public MediaItem? NextInsteadOfCredits =>
+        ActiveMarker is { Kind: Marker.Credits } && Current is { Kind: MediaKind.Episode } cur ? Host.Library.NextAfter(cur) : null;
+
+    public string? SkipLabel => ActiveMarker is { } m ? NextInsteadOfCredits != null ? "Next episode" : m.Label : null;
+
     public void SkipMarker()
     {
+        if (NextInsteadOfCredits is { } next && Current is { } cur)
+        {
+            AppLog.Info($"credits: on to {next.Id}");
+            Host.Library.SetWatched(cur, true);
+            Play(next, fromStart: true);
+            return;
+        }
         if (ActiveMarker is { } m)
         {
             SeekTo(m.End);
@@ -283,9 +299,54 @@ public partial class PlayerService : Node
         }
     }
 
-    public void SelectAudio(int id) => Guard(() => _mpv?.SelectAudio(id));
+    public void SelectAudio(int id)
+    {
+        Guard(() => _mpv?.SelectAudio(id));
+        if (TrackKey(Current) is { } key && Tracks.FirstOrDefault(t => t.Id == id && t.Kind == TrackKind.Audio)?.Language is { } lang)
+        {
+            Host.Library.Lists.RememberTracks(key, audio: lang);
+        }
+    }
 
-    public void SelectSubtitle(int? id) => Guard(() => _mpv?.SelectSubtitle(id));
+    public void SelectSubtitle(int? id)
+    {
+        Guard(() => _mpv?.SelectSubtitle(id));
+        if (TrackKey(Current) is { } key)
+        {
+            var lang = id is { } i ? Tracks.FirstOrDefault(t => t.Id == i && t.Kind == TrackKind.Subtitle)?.Language : null;
+            Host.Library.Lists.RememberTracks(key, subtitle: lang, subtitlesOff: id == null);
+        }
+    }
+
+    /// <summary>Tracks are remembered per show (every episode) or per movie.</summary>
+    private static string? TrackKey(MediaItem? item) => item switch
+    {
+        { Kind: MediaKind.Episode, ParentId: { } show } => show,
+        { Kind: MediaKind.Movie or MediaKind.Episode } => item.Id,
+        _ => null,
+    };
+
+    /// <summary>Before a file loads: the show's remembered audio / subtitle languages first, then the settings'.</summary>
+    private void ApplyTrackChoice(MediaItem item)
+    {
+        var s = Host.Settings;
+        var pref = TrackKey(item) is { } key ? Host.Library.Lists.TrackChoice(key) : null;
+        var alang = (pref?.Audio is { } a ? s.AudioLanguages.Prepend(a) : s.AudioLanguages).Distinct();
+        var slang = (pref?.Subtitle is { } sl ? s.SubtitleLanguages.Prepend(sl) : s.SubtitleLanguages).Distinct();
+        var off = pref?.SubtitlesOff ?? s.SubtitleLanguages.Count == 0;
+        if (pref != null && pref.Subtitle != null && !pref.SubtitlesOff)
+        {
+            off = false;
+        }
+        _mpv!.SetString("alang", string.Join(',', alang));
+        _mpv.SetString("slang", string.Join(',', slang));
+        _mpv.SetString("aid", "auto");
+        _mpv.SetString("sid", off ? "no" : "auto");
+        if (pref != null)
+        {
+            AppLog.Info($"tracks for {item.Id}: audio {pref.Audio ?? "default"}, subtitles {(off ? "off" : pref.Subtitle ?? "default")}");
+        }
+    }
 
     /// <summary>Stops playback (saving where it was) and frees nothing: the next Play reuses the player.</summary>
     public void Stop()
@@ -373,6 +434,13 @@ public partial class PlayerService : Node
                 Finished?.Invoke(item);
             }
             ActiveMarker = Host.Library.MarkersOf(Current).FirstOrDefault(m => Position >= m.Start && Position < m.End - 1);
+            if (ActiveMarker is { Kind: Marker.Intro } intro && Host.Settings.AutoSkipIntro && _autoSkipped != (Current.Id, intro.Start))
+            {
+                _autoSkipped = (Current.Id, intro.Start);  // once: seeking back into it plays it
+                AppLog.Info($"auto-skip intro of {Current.Id}");
+                SkipMarker();
+                Main.Instance.Toast("Skipped the intro");
+            }
             _saveClock += delta;
             if (_saveClock >= ResumePolicy.SaveIntervalSeconds && !_mpv.Paused)
             {
