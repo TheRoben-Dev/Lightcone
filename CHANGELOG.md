@@ -12,6 +12,7 @@ the in-app "What's new" page.
 - During an episode's end credits, the skip button becomes Next episode (Y).
 - Tiles show a ✓ for watched movies and episodes, how many episodes of a show are left, and a ribbon for the watchlist.
 - Shows count as recently added when a new episode arrives (Home and the date-added sort).
+- Settings → Playback → Skip intros automatically: marked intros are skipped without a press.
 - Audio and subtitle choices are remembered per show: pick Japanese audio with English subtitles once, and every episode starts that way.
 
 ## 0.4.0

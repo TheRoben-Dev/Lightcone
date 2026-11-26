@@ -60,6 +60,8 @@ public partial class PlayerService : Node
     /// <summary>The intro/credits marker under the playhead, if any.</summary>
     public Marker? ActiveMarker { get; private set; }
 
+    private (string, double)? _autoSkipped;
+
     public IReadOnlyList<MediaTrack> Tracks { get; private set; } = [];
 
     /// <summary>hwdec mpv actually uses ("vaapi", "videotoolbox", "no"...), for the info panel and the log.</summary>
@@ -432,6 +434,13 @@ public partial class PlayerService : Node
                 Finished?.Invoke(item);
             }
             ActiveMarker = Host.Library.MarkersOf(Current).FirstOrDefault(m => Position >= m.Start && Position < m.End - 1);
+            if (ActiveMarker is { Kind: Marker.Intro } intro && Host.Settings.AutoSkipIntro && _autoSkipped != (Current.Id, intro.Start))
+            {
+                _autoSkipped = (Current.Id, intro.Start);  // once: seeking back into it plays it
+                AppLog.Info($"auto-skip intro of {Current.Id}");
+                SkipMarker();
+                Main.Instance.Toast("Skipped the intro");
+            }
             _saveClock += delta;
             if (_saveClock >= ResumePolicy.SaveIntervalSeconds && !_mpv.Paused)
             {

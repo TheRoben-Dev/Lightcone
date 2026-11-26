@@ -66,6 +66,9 @@ public sealed record AppSettings
     /// <summary>Seconds a forward press (right trigger, Right, L) jumps. Held presses go faster.</summary>
     public int SeekForward { get; init; } = 30;
 
+    /// <summary>Jump past marked intros without a press.</summary>
+    public bool AutoSkipIntro { get; init; }
+
     /// <summary>Update channel: "stable" (releases) or "test" (test builds too); null = test for a test build, else stable.</summary>
     public string? UpdateChannel { get; init; }
 
