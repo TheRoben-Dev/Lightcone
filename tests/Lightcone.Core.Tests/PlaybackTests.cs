@@ -19,7 +19,8 @@ public sealed class MpvFactAttribute : FactAttribute
 public class PlaybackTests
 {
     // Simulated Linux / macOS paths are built with the host's separator; compare them with '/'.
-    private static string N(string path) => path.Replace('\\', '/');
+    // (On Windows, full paths also get the current drive letter.)
+    private static string N(string path) => System.Text.RegularExpressions.Regex.Replace(path.Replace('\\', '/'), "^[A-Za-z]:", "");
 
     [Fact]
     public void LooksInTheBundleBeforeTheSystem()

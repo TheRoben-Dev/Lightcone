@@ -231,7 +231,7 @@ jobs:
     # started headless.
     name: macOS (tests, libmpv, app bundle)
     needs: [app]
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -319,7 +319,7 @@ jobs:
     name: Publish release (with macOS)
     needs: [release]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: macos-14
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
