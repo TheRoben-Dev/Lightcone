@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>lightcone</AssemblyName>
+    <!-- Windows file names ignore case: lightcone.exe would clash with the app's Lightcone.exe. -->
+    <AssemblyName Condition="$(RuntimeIdentifier.StartsWith('win'))">lightcone-cli</AssemblyName>
+    <RootNamespace>Lightcone.Cli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lightcone.Core\Lightcone.Core.csproj" />
+    <ProjectReference Include="..\Lightcone.Host\Lightcone.Host.csproj" />
+    <ProjectReference Include="..\Lightcone.Playback\Lightcone.Playback.csproj" />
+  </ItemGroup>
+</Project>

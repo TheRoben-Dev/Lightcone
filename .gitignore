@@ -1,0 +1,8 @@
+build/
+__pycache__/
+*.pyc
+bin/
+obj/
+.godot/
+dist*/
+*.log

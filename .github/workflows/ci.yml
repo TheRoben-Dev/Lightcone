@@ -1,0 +1,354 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: 4.7.2
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  dotnet:
+    name: .NET build and tests (core, host, playback, CLI)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: libmpv (for the playback integration test)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmpv2
+      - name: Workflow files and scripts are valid
+        run: |
+          python3 -c "import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml
+          bash -n tools/smoke/*.sh tools/release/*.sh
+      - name: Build (warnings are errors)
+        run: dotnet build Lightcone.sln -c Release
+      - name: Test
+        run: dotnet test Lightcone.sln -c Release --no-build --logger "console;verbosity=normal"
+      - name: CLI runs
+        run: |
+          dotnet src/Lightcone.Cli/bin/Release/net8.0/lightcone.dll version
+          dotnet src/Lightcone.Cli/bin/Release/net8.0/lightcone.dll probe
+
+  app:
+    name: Godot app (import, UI smoke tests, Linux / Windows / macOS export)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Cache Godot editor and export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-dl
+          key: godot-mono-${{ env.GODOT_VERSION }}
+
+      - name: Download Godot .NET ${{ env.GODOT_VERSION }}
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-dl && cd ~/godot-dl
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          curl -fsSL --retry 3 -o editor.zip "$base/Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64.zip"
+          curl -fsSL --retry 3 -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_mono_export_templates.tpz"
+          curl -fsSL --retry 3 -o SHA512-SUMS.txt "$base/SHA512-SUMS.txt"
+          grep -E " (Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64.zip|Godot_v${GODOT_VERSION}-stable_mono_export_templates.tpz)$" SHA512-SUMS.txt \
+            | sed -e "s/Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64.zip/editor.zip/" -e "s/Godot_v${GODOT_VERSION}-stable_mono_export_templates.tpz/templates.tpz/" \
+            | sha512sum -c -
+
+      - name: Install Godot, Mesa (GLX + EGL) and libmpv
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglu1-mesa libegl1 libgles2 libmpv2
+          cd ~/godot-dl
+          unzip -q -o editor.zip -d editor
+          echo "GODOT=$(ls ~/godot-dl/editor/*/Godot_v*_mono_linux.x86_64)" >> "$GITHUB_ENV"
+          dest=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+          mkdir -p "$dest"
+          unzip -q -o -j templates.tpz 'templates/linux_*x86_64*' 'templates/windows_*x86_64*' 'templates/macos.zip' 'templates/version.txt' -d "$dest"
+
+      - name: Build
+        run: |
+          dotnet build Lightcone.sln -c Release
+          dotnet build src/Lightcone.App -c Debug   # what the editor runs from source
+
+      - name: Import project
+        working-directory: src/Lightcone.App
+        run: timeout 300 "$GODOT" --headless --import
+
+      - name: UI smoke test (editor, EGL / opengl3_es)
+        run: tools/smoke/run-ui-smoke.sh "$GODOT" "${{ runner.temp }}/shots-editor"
+
+      - name: Export Linux build
+        working-directory: src/Lightcone.App
+        run: |
+          mkdir -p ../../build/godot
+          timeout 600 "$GODOT" --headless --export-release Linux ../../build/godot/Lightcone.x86_64 2>&1 | tee export.log
+          test -x ../../build/godot/Lightcone.x86_64
+          ! grep -E "^ERROR" export.log
+
+      - name: Headless CLI (lightcone)
+        run: |
+          dotnet publish src/Lightcone.Cli -c Release -r linux-x64 --self-contained \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o build/godot
+          build/godot/lightcone --help
+          build/godot/lightcone probe
+
+      - name: UI smoke test (exported build, GLX / opengl3)
+        run: SMOKE_DRIVER=opengl3 tools/smoke/run-ui-smoke.sh build/godot/Lightcone.x86_64 "${{ runner.temp }}/shots"
+
+      - name: Export Windows build
+        working-directory: src/Lightcone.App
+        run: |
+          mkdir -p ../../build/godot-windows
+          timeout 600 "$GODOT" --headless --export-release Windows ../../build/godot-windows/Lightcone.exe 2>&1 | tee export-windows.log
+          test -f ../../build/godot-windows/Lightcone.exe
+          ! grep -E "^ERROR" export-windows.log
+
+      - name: Headless CLI for Windows (lightcone-cli.exe)
+        run: |
+          dotnet publish src/Lightcone.Cli -c Release -r win-x64 --self-contained \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o build/godot-windows
+          test -f build/godot-windows/lightcone-cli.exe
+          tools/release/package-windows.sh build/godot-windows 0.0.0 dist-windows   # for the installer test on Windows
+
+      - name: Export macOS build (universal, ad-hoc signed by Godot)
+        working-directory: src/Lightcone.App
+        run: |
+          mkdir -p ../../build/godot-macos
+          timeout 900 "$GODOT" --headless --export-release macOS ../../build/godot-macos/Lightcone.zip 2>&1 | tee export-macos.log
+          test -f ../../build/godot-macos/Lightcone.zip
+          ! grep -E "^ERROR" export-macos.log
+
+      - name: Headless CLI for macOS (arm64 + x64)
+        run: |
+          for rid in osx-arm64 osx-x64; do
+            dotnet publish src/Lightcone.Cli -c Release -r $rid --self-contained \
+              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o build/cli-$rid
+          done
+          mkdir -p build/godot-macos/cli
+          cp build/cli-osx-arm64/lightcone build/godot-macos/cli/lightcone-arm64
+          cp build/cli-osx-x64/lightcone build/godot-macos/cli/lightcone-x64
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: |
+            ${{ runner.temp }}/shots
+            ${{ runner.temp }}/shots-editor
+          if-no-files-found: ignore
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightcone-linux-x86_64
+          path: build/godot
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightcone-windows-x86_64
+          path: build/godot-windows
+
+      - name: Upload Windows package (CI test copy)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightcone-windows-zip-test
+          path: dist-windows/Lightcone-windows-x86_64.zip
+
+      - name: Upload macOS export
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightcone-macos-export
+          path: build/godot-macos
+
+  windows:
+    # The same code on a real Windows machine: tests (known folders, paths), the exported build
+    # starting headless, the CLI, and the installer script.
+    name: Windows (tests, exported build, installer)
+    needs: [app]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build (warnings are errors)
+        run: dotnet build Lightcone.sln -c Release
+      - name: Test
+        run: dotnet test Lightcone.sln -c Release --no-build --logger "console;verbosity=normal"
+      - uses: actions/download-artifact@v4
+        with:
+          name: Lightcone-windows-x86_64
+          path: build/godot-windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: Lightcone-windows-zip-test
+          path: dist
+      - name: CLI runs
+        shell: pwsh
+        run: |
+          $cli = "build/godot-windows/lightcone-cli.exe"
+          & $cli version;  if ($LASTEXITCODE) { exit 1 }
+          & $cli settings; if ($LASTEXITCODE) { exit 1 }
+      - name: Exported app starts (headless)
+        shell: pwsh
+        run: |
+          $p = Start-Process build/godot-windows/Lightcone.exe -ArgumentList '--headless','--quit-after','600' -PassThru -Wait `
+            -RedirectStandardOutput app-out.log -RedirectStandardError app-err.log
+          Get-Content app-out.log, app-err.log
+          $log = Join-Path $env:LOCALAPPDATA 'Lightcone\logs\app.log'
+          if (Test-Path $log) { Get-Content $log }
+          if (Select-String -Path app-out.log, app-err.log -Pattern 'Unhandled exception|System\.[A-Za-z.]*Exception') { throw 'exceptions while starting' }
+          if ($p.ExitCode -ne 0) { throw "exit code $($p.ExitCode)" }
+      - name: Installer
+        shell: pwsh
+        run: |
+          Expand-Archive dist/Lightcone-windows-x86_64.zip -DestinationPath $env:RUNNER_TEMP/unzipped
+          $dest = Join-Path $env:RUNNER_TEMP 'Programs\Lightcone'
+          & "$env:RUNNER_TEMP/unzipped/Lightcone/install.ps1" -Dest $dest -NoSteam
+          if (-not (Test-Path "$dest/Lightcone.exe")) { throw 'not installed' }
+          if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Lightcone.lnk'))) { throw 'no Start menu entry' }
+          (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightcone').DisplayVersion
+          & "$dest/uninstall.ps1" -Quiet
+          Start-Sleep -Seconds 5
+          if (Test-Path "$dest/Lightcone.exe") { throw 'not uninstalled' }
+
+  macos:
+    # Tests on macOS, Homebrew libmpv through the CLI, then the .app: packaged, signed ad hoc,
+    # started headless.
+    name: macOS (tests, libmpv, app bundle)
+    needs: [app]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: libmpv from Homebrew
+        run: brew install mpv
+      - name: Build (warnings are errors)
+        run: dotnet build Lightcone.sln -c Release
+      - name: Test
+        run: dotnet test Lightcone.sln -c Release --no-build --logger "console;verbosity=normal"
+      - uses: actions/download-artifact@v4
+        with:
+          name: Lightcone-macos-export
+          path: build/godot-macos
+      - name: Package (Lightcone-macos-universal.zip)
+        run: tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli 0.0.0 dist-macos
+      - name: App bundle runs
+        run: |
+          ditto -x -k dist-macos/Lightcone-macos-universal.zip "$RUNNER_TEMP/app"
+          app="$RUNNER_TEMP/app/Lightcone.app"
+          lipo -archs "$app/Contents/MacOS/Lightcone"
+          "$app/Contents/MacOS/lightcone" version
+          "$app/Contents/MacOS/lightcone" probe
+          "$app/Contents/MacOS/Lightcone" --headless --quit-after 600 2>&1 | tee app-out.log
+          cat ~/Library/Application\ Support/Lightcone/logs/app.log 2>/dev/null || true
+          ! grep -E "Unhandled exception|System\.[A-Za-z.]*Exception" app-out.log
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightcone-macos-universal
+          path: dist-macos/Lightcone-macos-universal.zip
+
+  release:
+    # Every push to main whose version (Directory.Build.props) has no release yet publishes one:
+    # the packages and checksums the in-app updater reads, with that version's changelog as notes.
+    name: Publish release
+    needs: [dotnet, app, windows, macos]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        run: |
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: Lightcone-linux-x86_64
+          path: build/godot
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: Lightcone-windows-x86_64
+          path: build/godot-windows
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: Lightcone-macos-export
+          path: build/godot-macos
+      - name: Package
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          chmod +x build/godot/Lightcone.x86_64 build/godot/lightcone
+          tools/release/package.sh build/godot "${{ steps.v.outputs.version }}" dist
+          tools/release/package-windows.sh build/godot-windows "${{ steps.v.outputs.version }}" dist
+          grep -q "Lightcone-linux-x86_64.tar.gz" dist/SHA256SUMS && grep -q "Lightcone-windows-x86_64.zip" dist/SHA256SUMS
+          awk -v v="## ${{ steps.v.outputs.version }}" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md > dist/notes.md
+          test -s dist/notes.md
+      - uses: actions/upload-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: release-linux-windows
+          path: dist
+
+  release-macos:
+    # The macOS zip has to be made on macOS (ditto, codesign); then everything is published together.
+    name: Publish release (with macOS)
+    needs: [release]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        run: |
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if gh release view "v$v" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: release-linux-windows
+          path: dist
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: Lightcone-macos-export
+          path: build/godot-macos
+      - name: Package macOS and publish
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli "${{ steps.v.outputs.version }}" dist
+          grep -q "Lightcone-macos-universal.zip" dist/SHA256SUMS
+          gh release create "v${{ steps.v.outputs.version }}" dist/Lightcone-linux-x86_64.tar.gz dist/Lightcone-windows-x86_64.zip \
+            dist/Lightcone-macos-universal.zip dist/SHA256SUMS \
+            --target "$GITHUB_SHA" --title "Lightcone ${{ steps.v.outputs.version }}" --notes-file dist/notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
