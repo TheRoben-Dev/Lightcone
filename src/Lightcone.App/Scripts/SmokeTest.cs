@@ -105,7 +105,7 @@ public partial class SmokeTest : Node
         }
         Step("theme-restore", () =>
         {
-            SetTheme("projector");
+            SetTheme("dark");
             SetAnimatedBackground(false);
         }, wait: 1.0);
         // Desktop mode: sidebar, toolbar, sortable table, mini player, keyboard shortcuts.

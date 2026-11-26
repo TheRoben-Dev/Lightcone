@@ -123,8 +123,7 @@ public partial class Feedback : Node
         "terminal" or "brick" or "pocket" => new Palette(Wave.Square, Pitch: 1.0f, Decay: 0.8f),
         "sixteen" => new Palette(Wave.Square, Detune: 0.004f, Pitch: 1.12f),
         "nightgrid" => new Palette(Wave.Saw, Detune: 0.008f, Pitch: 0.9f),
-        "cdera" => new Palette(Wave.Triangle, Echo: 0.35f, Pitch: 0.95f, Decay: 1.3f),
-        "projector" => new Palette(Wave.Sine, Echo: 0.25f, Pitch: 0.85f, Decay: 1.2f),
+        "polygon" or "cdera" => new Palette(Wave.Triangle, Echo: 0.35f, Pitch: 0.95f, Decay: 1.3f),
         _ => new Palette(Wave.Sine, Pitch: 1f),
     };
 
@@ -205,7 +204,7 @@ public partial class Feedback : Node
     /// <summary>Writes every palette's cues as 16-bit mono .wav files into <paramref name="dir"/>/&lt;palette&gt;/.</summary>
     public static void WriteAll(string dir)
     {
-        foreach (var (name, theme) in new[] { ("soft", "dark"), ("chip", "terminal"), ("bright-chip", "sixteen"), ("neon", "nightgrid"), ("cd", "cdera"), ("projector", "projector") })
+        foreach (var (name, theme) in new[] { ("soft", "dark"), ("chip", "terminal"), ("bright-chip", "sixteen"), ("neon", "nightgrid"), ("polygon", "polygon") })
         {
             var d = System.IO.Path.Combine(dir, name);
             Directory.CreateDirectory(d);

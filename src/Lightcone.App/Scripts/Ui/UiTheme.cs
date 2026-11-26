@@ -55,14 +55,7 @@ public static class UiTheme
 {
     public static readonly IReadOnlyList<ThemeSpec> Themes =
     [
-        new("projector", "Projector", "The default: a dark auditorium, a warm beam from the booth and amber highlights.")
-        {
-            Bg = new("0a0b10"), Panel = new("14161e"), PanelHi = new("1d2030"), Line = new("272b3a"),
-            Accent = new("ffb347"), Text = new("f3efe6"), Dim = new("9b98a3"),
-            Good = new("5fd39a"), Warn = new("f0b452"), Bad = new("ef6b6b"), Info = new("7fb8ff"),
-            Shell = new("23263a"), Radius = 12, Glow = 0.10f, Wordmark = "LIGHTCONE", Tiles = (0.42f, 0.30f, 0, 360),
-        },
-        new("dark", "Dark", "Calm dark panels with a violet accent.")
+        new("dark", "Dark", "The default: calm dark panels with a violet accent.")
         {
             Bg = new("0d0f14"), Panel = new("161a22"), PanelHi = new("1f2430"), Line = new("262c38"),
             Accent = new("7c6cff"), Text = new("e8eaf0"), Dim = new("8a91a3"),
@@ -114,6 +107,14 @@ public static class UiTheme
             Good = new("47c27a"), Warn = new("ff8a1f"), Bad = new("f0524f"), Info = new("ff8a1f"),
             Shell = new("3d414b"), Radius = 5, Hairline = 1, Bevel = 3, Glow = 0.12f, Tiles = (0.5f, 0.36f, 0, 360),
         },
+        new("polygon", "32-bit 3D", "Late-90s polygons: wobbly 3D cartridges, dithered colour, fog and era toys you can poke.")
+        {
+            Bg = new("0b0c1d"), Panel = new("1a1c36"), PanelHi = new("272a50"), Line = new("3b4176"),
+            Accent = new("ffc23d"), Text = new("eef0ff"), Dim = new("9095c4"),
+            Good = new("5ce08c"), Warn = new("ff9a3d"), Bad = new("ff5a6a"), Info = new("4fc3ff"),
+            Shell = new("6c6f80"), Radius = 3, Hairline = 1, Bevel = 3, FontKind = "chakra", Upper = true,
+            Glow = 0f, Wordmark = "LIGHTCONE", Tiles = (0.55f, 0.42f, 0, 360),
+        },
     ];
 
     public static ThemeSpec Spec { get; private set; } = Themes[0];
@@ -132,6 +133,9 @@ public static class UiTheme
     public static string Name => Spec.Id;
     public static bool Terminal => Name == "terminal";
     public static bool Nightgrid => Name == "nightgrid";
+
+    /// <summary>The 32-bit 3D theme: the library draws real 3D cartridges.</summary>
+    public static bool Poly3D => Name == "polygon";
 
     /// <summary>Themes with uppercase labels (terminal, pixel and grid looks).</summary>
     public static bool Mono => Spec.Upper;

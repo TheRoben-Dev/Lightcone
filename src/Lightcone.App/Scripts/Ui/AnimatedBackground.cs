@@ -1,4 +1,6 @@
+using Lightcone.App.Ui.Poly;
 using Godot;
+using Poly3DBackdrop = Lightcone.App.Ui.Poly.PolyBackdrop;
 
 namespace Lightcone.App.Ui;
 
@@ -19,6 +21,7 @@ public partial class AnimatedBackground : Control
     private readonly ShaderMaterial? _material;
     private readonly ColorRect? _rect;
     private readonly Poly[] _shapes = [];
+    private readonly Poly3DBackdrop? _poly;
     private double _time = StillTime;
     private double _acc;
     private bool _paused;
@@ -30,7 +33,11 @@ public partial class AnimatedBackground : Control
         set
         {
             _paused = value;
-            SetProcess(!value);
+            SetProcess(!value && _poly == null);
+            if (_poly != null)
+            {
+                _poly.Paused = value;
+            }
         }
     }
 
@@ -38,6 +45,14 @@ public partial class AnimatedBackground : Control
     {
         MouseFilter = MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        if (spec.Id == "polygon")
+        {
+            // A real 3D scene (its own low-res renderer, clock and pause).
+            _poly = new Poly3DBackdrop(spec);
+            AddChild(_poly);
+            SetProcess(false);
+            return;
+        }
         if (spec.Id == "cdera")
         {
             _shapes =
@@ -65,6 +80,10 @@ public partial class AnimatedBackground : Control
 
     public override void _Process(double delta)
     {
+        if (_poly != null)
+        {
+            return;
+        }
         if (!Anim.Enabled)
         {
             if (_time != StillTime)
@@ -85,6 +104,10 @@ public partial class AnimatedBackground : Control
 
     private void Push()
     {
+        if (_poly != null)
+        {
+            return;
+        }
         if (_material != null)
         {
             _material.SetShaderParameter("t", (float)_time);
@@ -209,25 +232,6 @@ public partial class AnimatedBackground : Control
     /// <summary>Shader body per theme id; unknown ids get the Dark one.</summary>
     internal static string Body(string id) => id switch
     {
-        // A projector's beam from the top centre: a soft cone that flickers like a lamp through a
-        // spinning shutter, with dust drifting through it.
-        "projector" => """
-            void fragment() {
-                vec2 p = UV * size;
-                vec2 src = vec2(size.x * 0.5, -size.y * 0.08);
-                vec2 d = p - src;
-                float ang = atan(d.x, d.y);
-                float spread = 0.42;
-                float cone = smoothstep(spread, spread * 0.35, abs(ang));
-                float fall = clamp(1.0 - length(d) / (size.y * 1.35), 0.0, 1.0);
-                float flicker = 0.9 + 0.06 * sin(t * 47.0) + 0.04 * noise(vec2(t * 3.0, 1.0));
-                float beam = cone * fall * flicker;
-                vec2 q = p / 3.0 + vec2(t * 4.0, -t * 6.0);
-                float dust = step(0.9965, hash(floor(q))) * (0.5 + 0.5 * sin(t * 2.0 + hash(floor(q)) * 30.0));
-                vec3 warm = mix(accent.rgb, text.rgb, 0.55);
-                COLOR = vec4(warm, beam * 0.10 + dust * cone * fall * 0.35);
-            }
-            """,
         // Pulsing dot grid: dots light up under a slow scan sweep and an expanding ring.
         "nightgrid" => """
             void fragment() {

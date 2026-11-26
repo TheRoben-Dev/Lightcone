@@ -10,7 +10,7 @@ namespace Lightcone.Host;
 public sealed record AppSettings
 {
     /// <summary>UI theme id (see the app's theme list); unknown ids fall back to the default.</summary>
-    public string Theme { get; init; } = "projector";
+    public string Theme { get; init; } = "dark";
 
     /// <summary>Accent colour per theme id (a swatch id from the app's list); missing = the theme's own.</summary>
     public Dictionary<string, string> Accents { get; init; } = new();
@@ -23,6 +23,12 @@ public sealed record AppSettings
 
     /// <summary>Turns off UI animations.</summary>
     public bool ReduceMotion { get; init; }
+
+    /// <summary>CRT scanlines over the UI in any theme.</summary>
+    public bool Crt { get; init; }
+
+    /// <summary>CRT effect strength when <see cref="Crt"/> is on: 1 subtle, 2 medium, 3 strong.</summary>
+    public int CrtLevel { get; init; } = 2;
 
     /// <summary>The theme's slow animated background behind the menus.</summary>
     public bool AnimatedBackground { get; init; } = true;

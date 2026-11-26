@@ -62,6 +62,9 @@ public partial class Main : Control
 
     public Screen Top => _stack[^1];
 
+    /// <summary>True while a full-screen page (the player) is up: background scenes stop rendering.</summary>
+    public bool FullScreenActive => _stack.Any(s => s.FullScreen && s.Visible);
+
     private void PauseBackground()
     {
         var paused = !_appFocused || _stack.Any(s => s.FullScreen);
@@ -104,7 +107,7 @@ public partial class Main : Control
             host.SaveSettings(host.Settings with { DemoLibrary = true });
             host.ApplyDemo(true);
         }
-        var startTheme = host?.Settings.Theme ?? "projector";
+        var startTheme = host?.Settings.Theme ?? "dark";
         AppLog.Info($"{Lightcone.Core.Platform.Name}, theme {startTheme}, window {DisplayServer.WindowGetSize()}, driver {RenderingServer.GetCurrentRenderingDriverName()} on {DisplayServer.GetName()}, pads: {Pad.DescribePads()}");
         UiTheme.Use(startTheme, host?.Settings.Accents.GetValueOrDefault(startTheme));
         Anim.Enabled = !(host?.Settings.ReduceMotion ?? false);
@@ -372,8 +375,7 @@ public partial class Main : Control
         _bgLayer.AddChild(bg);
         if (UiTheme.Spec.Glow > 0)
         {
-            // Soft accent glow from the top so the background isn't flat (projector: from the booth).
-            var projector = UiTheme.Name == "projector";
+            // Soft accent glow so the background isn't flat.
             var glow = new TextureRect
             {
                 Texture = new GradientTexture2D
@@ -384,8 +386,8 @@ public partial class Main : Control
                         Colors = [UiTheme.Accent with { A = UiTheme.Spec.Glow }, UiTheme.Accent with { A = 0f }],
                     },
                     Fill = GradientTexture2D.FillEnum.Radial,
-                    FillFrom = projector ? new Vector2(0.5f, 0f) : new Vector2(0.1f, 0f),
-                    FillTo = projector ? new Vector2(0.5f, 0.95f) : new Vector2(0.85f, 0.9f),
+                    FillFrom = new Vector2(0.1f, 0f),
+                    FillTo = new Vector2(0.85f, 0.9f),
                     Width = 256,
                     Height = 256,
                 },
@@ -411,10 +413,12 @@ public partial class Main : Control
             case Decor.PixelGrid:
                 _bgLayer.AddChild(new PixelGrid());
                 break;
-            case Decor.Scanlines:
-                _crt = new Scanlines(0);
-                _bgLayer.AddChild(_crt);
-                break;
+        }
+        // Scanlines sit above everything (ZIndex), from the theme or the CRT setting.
+        if (UiTheme.Spec.Decor == Decor.Scanlines || Host?.Settings.Crt == true)
+        {
+            _crt = new Scanlines(Host?.Settings.Crt == true ? Host.Settings.CrtLevel : 0);
+            _bgLayer.AddChild(_crt);
         }
         PauseBackground();
     }
@@ -634,6 +638,7 @@ public partial class Main : Control
         CoverArt.ReleaseShared();
         PosterArt.ReleaseShared();
         VideoView.ReleaseShared();
+        Lightcone.App.Ui.Poly.Ps1.ReleaseShared();
         UiTheme.ReleaseFonts();
         GC.Collect();
         GC.WaitForPendingFinalizers();
