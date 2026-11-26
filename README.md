@@ -17,15 +17,15 @@ The mode is picked automatically (Controller in Game Mode / Big Picture, Desktop
 
 ## Status
 
-**0.1.0, Phase 1 (preview).** The app shell, both UI modes, the player and the settings are in place.
+**0.2.0, Phase 2 (preview).** The app shell, both UI modes, the player and the settings are in place, and every release carries its own playback engine.
 
-- The playback engine works end to end. CI plays the built-in sample library (generated test patterns and tones) through libmpv and takes screenshots.
+- The playback engine works end to end and needs nothing installed. CI builds libmpv from pinned sources for each OS, plays the built-in sample library (generated test patterns and tones) through it and takes screenshots.
 - Real sources are not wired up yet.
 
 | Phase | What |
 |---|---|
 | 1 ✅ | Scaffold: Core/Host/Playback/CLI/App, both UI modes, libmpv player (GL texture path, software fallback), settings, self-update, Steam shortcut, CI with UI smoke tests, Linux/Windows/macOS builds |
-| 2 | libmpv bundled in every release (slim Steam Runtime build for Linux, pinned DLL for Windows, dylibs in the .app), Deck hardware-decoding bench, PGS check |
+| 2 ✅ | libmpv bundled in every release (slim Steam Runtime build for Linux, pinned DLL for Windows, dylibs in the .app), Deck hardware-decoding bench, PGS check |
 | 3 | Local folders (SD cards and network shares included) with TMDB / MusicBrainz metadata and artwork |
 | 4 | Jellyfin and Plex: sign in, libraries, continue watching, progress sync, intro/credits markers |
 | 5 | Music: queue, shuffle, gapless, album/artist views, background playback |
@@ -43,13 +43,12 @@ tar xzf Lightcone-linux-x86_64.tar.gz && ./Lightcone/install.sh
 
 This installs to `~/Applications/Lightcone`, adds a menu entry and adds a Steam shortcut with art. Use `--restart-steam` if Steam is open.
 
-Until Phase 2 bundles it, playback needs a system libmpv. Check with `~/Applications/Lightcone/lightcone probe`.
+Playback needs nothing else installed: the build carries its own libmpv. `~/Applications/Lightcone/lightcone probe` shows the engine and the codecs it decodes.
 
-**Windows:** unzip `Lightcone-windows-x86_64.zip` and double-click **Install Lightcone.cmd**. It installs per user with no admin rights, and adds a Start menu entry and an Apps & features entry. Until Phase 2, put `libmpv-2.dll` next to `Lightcone.exe` (for example from [shinchiro's mpv builds](https://github.com/shinchiro/mpv-winbuild-cmake/releases)).
+**Windows:** unzip `Lightcone-windows-x86_64.zip` and double-click **Install Lightcone.cmd**. It installs per user with no admin rights, and adds a Start menu entry and an Apps & features entry.
 
 **macOS (Apple silicon and Intel):** unzip `Lightcone-macos-universal.zip` and move `Lightcone.app` to Applications.
 
-- Install the engine with `brew install mpv` (until Phase 2 bundles it).
 - The app is signed ad hoc, not notarized, so on first launch right-click it and choose **Open**. Or run `xattr -dr com.apple.quarantine /Applications/Lightcone.app`.
 
 Updates install from inside the app (Settings → Updates) and keep one previous version to roll back to.
@@ -60,7 +59,7 @@ Lightcone embeds libmpv through mpv's render API. Video is drawn into a Godot te
 
 - **GL context:** EGL on Linux (`opengl3_es`) for zero-copy VA-API on AMD, CGL on macOS (VideoToolbox), WGL on Windows.
 - **Software fallback:** `--video-sw` or `LIGHTCONE_VIDEO_SW=1`.
-- **Benchmark:** `Lightcone --bench[=<file>]` plays for 30 s and writes `bench-*.txt` next to the logs. It records the render path, hwdec in use, dropped frames and fps.
+- **Benchmark:** `Lightcone --bench[=<file>]` plays for 30 s and writes `bench-*.txt` next to the logs. It records the render path, hwdec in use, dropped frames, fps and the subtitle tracks found. See [docs/bench.md](docs/bench.md) for the Steam Deck and Mac checklist.
 - **Design:** [docs/video-playback-spike.md](docs/video-playback-spike.md).
 
 Controls in the player:
@@ -76,7 +75,7 @@ Controls in the player:
 
 ## Build
 
-Requirements: .NET 8 SDK, [Godot 4.7.2 .NET](https://godotengine.org/download), and libmpv (`libmpv2` on Debian/Ubuntu, `mpv-libs` on Fedora, `brew install mpv`).
+Requirements: .NET 8 SDK, [Godot 4.7.2 .NET](https://godotengine.org/download), and a libmpv: either the system's (`libmpv2` on Debian/Ubuntu, `mpv-libs` on Fedora, `brew install mpv`), or the one releases ship, built with `tools/libmpv/build.sh <out>` and picked up through `LIGHTCONE_LIBMPV=<out>/libmpv.so.2`.
 
 ```sh
 dotnet build Lightcone.sln            # core, host, playback, CLI (warnings are errors)

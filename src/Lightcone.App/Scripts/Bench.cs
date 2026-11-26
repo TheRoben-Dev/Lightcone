@@ -1,4 +1,5 @@
 using Lightcone.Host;
+using Lightcone.Playback;
 using Godot;
 using Lightcone.App.Playback;
 using Lightcone.Host.Library;
@@ -84,6 +85,9 @@ public partial class Bench : Node
             lines.Add($"hwdec        {P("hwdec-current")} (asked: {P("hwdec")})");
             lines.Add($"dropped      vo {P("frame-drop-count")}, decoder {P("decoder-frame-drop-count")}, mistimed {P("mistimed-frame-count")}");
             lines.Add($"audio        {P("audio-codec-name")} {P("audio-params/channel-count")} ch");
+            // Subtitle tracks as the demuxer found them: Blu-ray rips should list hdmv_pgs_subtitle.
+            var subs = svc.Tracks.Where(t => t.Kind == TrackKind.Subtitle).ToList();
+            lines.Add($"subtitles    {(subs.Count == 0 ? "none" : string.Join(", ", subs.Select(t => $"{t.Codec ?? "?"} {t.Language ?? "und"}{(t.Forced ? " forced" : "")}")))}");
             lines.Add($"godot fps    avg {(_fpsN > 0 ? _fpsSum / _fpsN : 0):0.0}, min {(_fpsN > 0 ? _fpsMin : 0):0}");
             lines.Add($"played       {svc.Position:0.0} s");
         }

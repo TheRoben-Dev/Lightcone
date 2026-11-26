@@ -68,6 +68,13 @@ public partial class SettingsScreen : TwoPaneScreen
             ? $"Playback engine: libmpv {MpvLibrary.ApiVersion} from {MpvLibrary.LoadedFrom}"
             : "Playback engine not found: " + why;
         col.AddChild(UiTheme.Label(engine, UiTheme.SmallSize + 1, PlayerService.EngineAvailable(out _) ? UiTheme.Dim : UiTheme.Warn, wrap: true));
+        if (Codecs.MissingInLoadedLibrary() is { } missing)
+        {
+            var formats = missing.Count == 0
+                ? $"Decodes every supported format: {string.Join(", ", Codecs.Required.SelectMany(g => g.Codecs).Select(Codecs.Display).Distinct())}"
+                : "This libmpv can't decode: " + string.Join(", ", missing.Select(Codecs.Display));
+            col.AddChild(UiTheme.Label(formats, UiTheme.SmallSize, missing.Count == 0 ? UiTheme.Dim : UiTheme.Warn, wrap: true));
+        }
 
         var hw = new Stepper("Hardware decoding", HwdecPolicy.Choices, s.Hwdec, "Decode video on the GPU. Applies to the next thing you play.")
         {

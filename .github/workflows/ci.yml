@@ -15,6 +15,98 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
+  # ---- libmpv, built from pinned sources (tools/libmpv) and cached until those change ----
+  libmpv-linux:
+    # Built in the Steam Runtime (sniper) SDK, so the library runs on SteamOS, Bazzite and any
+    # desktop distro at least as new as Debian 11.
+    name: libmpv (Linux, Steam Runtime)
+    runs-on: ubuntu-24.04
+    container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/libmpv/linux
+          key: libmpv-linux-${{ hashFiles('tools/libmpv/**') }}
+      - name: Build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/libmpv/ci-deps.sh linux
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/libmpv/build.sh build/libmpv/linux linux
+      - name: Only OS libraries, only mpv's API
+        run: |
+          readelf -d build/libmpv/linux/libmpv.so.2 | grep NEEDED
+          ! readelf -d build/libmpv/linux/libmpv.so.2 | grep NEEDED | grep -vE '\[(libc|libm|libz|libfontconfig|libva|libva-drm|libdrm|libasound|libpulse|libEGL|ld-linux-x86-64)\.so'
+          objdump -T build/libmpv/linux/libmpv.so.2 | grep -oP 'GLIBC_[0-9.]+' | sort -Vu | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-linux
+          path: build/libmpv/linux
+
+  libmpv-windows:
+    name: libmpv (Windows, mingw-w64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/libmpv/windows
+          key: libmpv-windows-${{ hashFiles('tools/libmpv/**') }}
+      - name: Build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/libmpv/ci-deps.sh windows
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/libmpv/build.sh build/libmpv/windows windows
+      - name: Only system DLLs
+        run: |
+          sudo apt-get install -y -q --no-install-recommends binutils-mingw-w64-x86-64 >/dev/null
+          x86_64-w64-mingw32-objdump -p build/libmpv/windows/libmpv-2.dll | grep 'DLL Name'
+          ! x86_64-w64-mingw32-objdump -p build/libmpv/windows/libmpv-2.dll | grep 'DLL Name' | grep -iE 'libstdc|libgcc|libwinpthread|av[a-z]+-[0-9]+\.dll'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-windows
+          path: build/libmpv/windows
+
+  libmpv-macos:
+    # Both architectures on Apple silicon (x86_64 cross-built), joined with lipo.
+    name: libmpv (macOS universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: build/libmpv/macos
+          key: libmpv-macos-${{ hashFiles('tools/libmpv/**') }}
+      - name: Build tools
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: tools/libmpv/ci-deps.sh macos
+      - name: Build arm64 and x86_64
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          tools/libmpv/build.sh build/libmpv/macos-arm64 macos-arm64
+          tools/libmpv/build.sh build/libmpv/macos-x86_64 macos-x86_64
+          mkdir -p build/libmpv/macos
+          lipo -create build/libmpv/macos-arm64/libmpv.2.dylib build/libmpv/macos-x86_64/libmpv.2.dylib \
+            -output build/libmpv/macos/libmpv.2.dylib
+          cp build/libmpv/macos-arm64/libmpv-versions.env build/libmpv/macos/
+      - name: Universal, system frameworks only
+        run: |
+          lipo -archs build/libmpv/macos/libmpv.2.dylib | grep -q 'x86_64 arm64'
+          otool -L build/libmpv/macos/libmpv.2.dylib
+          ! otool -L build/libmpv/macos/libmpv.2.dylib | grep -E '^\s' | grep -v '@rpath/libmpv.2.dylib' | grep -vE '^\s+(/usr/lib/|/System/Library/)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-macos
+          path: build/libmpv/macos
+
   dotnet:
     name: .NET build and tests (core, host, playback, CLI)
     runs-on: ubuntu-24.04
@@ -28,7 +120,7 @@ jobs:
       - name: Workflow files and scripts are valid
         run: |
           python3 -c "import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml
-          bash -n tools/smoke/*.sh tools/release/*.sh
+          for f in tools/smoke/*.sh tools/release/*.sh tools/libmpv/*.sh; do bash -n "$f"; done
       - name: Build (warnings are errors)
         run: dotnet build Lightcone.sln -c Release
       - name: Test
@@ -40,9 +132,18 @@ jobs:
 
   app:
     name: Godot app (import, UI smoke tests, Linux / Windows / macOS export)
+    needs: [libmpv-linux, libmpv-windows]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libmpv-linux
+          path: build/libmpv/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: libmpv-windows
+          path: build/libmpv/windows
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
@@ -66,10 +167,12 @@ jobs:
             | sed -e "s/Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64.zip/editor.zip/" -e "s/Godot_v${GODOT_VERSION}-stable_mono_export_templates.tpz/templates.tpz/" \
             | sha512sum -c -
 
-      - name: Install Godot, Mesa (GLX + EGL) and libmpv
+      - name: Install Godot, Mesa (GLX + EGL) and what the bundled libmpv uses from the OS
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglu1-mesa libegl1 libgles2 libmpv2
+          # No system libmpv here: everything below plays through the libmpv this run built.
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri libglu1-mesa libegl1 libgles2 \
+            libva2 libva-drm2 libdrm2 libpulse0 libasound2t64 libfontconfig1
           cd ~/godot-dl
           unzip -q -o editor.zip -d editor
           echo "GODOT=$(ls ~/godot-dl/editor/*/Godot_v*_mono_linux.x86_64)" >> "$GITHUB_ENV"
@@ -87,7 +190,9 @@ jobs:
         run: timeout 300 "$GODOT" --headless --import
 
       - name: UI smoke test (editor, EGL / opengl3_es)
-        run: tools/smoke/run-ui-smoke.sh "$GODOT" "${{ runner.temp }}/shots-editor"
+        run: |
+          export LIGHTCONE_LIBMPV="$GITHUB_WORKSPACE/build/libmpv/linux/libmpv.so.2"
+          SMOKE_LIBMPV=build/libmpv/linux/libmpv.so.2 tools/smoke/run-ui-smoke.sh "$GODOT" "${{ runner.temp }}/shots-editor"
 
       - name: Export Linux build
         working-directory: src/Lightcone.App
@@ -96,16 +201,18 @@ jobs:
           timeout 600 "$GODOT" --headless --export-release Linux ../../build/godot/Lightcone.x86_64 2>&1 | tee export.log
           test -x ../../build/godot/Lightcone.x86_64
           ! grep -E "^ERROR" export.log
+          ../../tools/libmpv/bundle.sh ../../build/libmpv/linux ../../build/godot/lib
 
       - name: Headless CLI (lightcone)
         run: |
           dotnet publish src/Lightcone.Cli -c Release -r linux-x64 --self-contained \
             -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o build/godot
           build/godot/lightcone --help
-          build/godot/lightcone probe
+          build/godot/lightcone probe | tee probe.txt
+          grep -q "build/godot/lib/libmpv.so.2" probe.txt   # the bundled one, not a system libmpv
 
       - name: UI smoke test (exported build, GLX / opengl3)
-        run: SMOKE_DRIVER=opengl3 tools/smoke/run-ui-smoke.sh build/godot/Lightcone.x86_64 "${{ runner.temp }}/shots"
+        run: SMOKE_DRIVER=opengl3 SMOKE_LIBMPV=build/godot/lib/libmpv.so.2 tools/smoke/run-ui-smoke.sh build/godot/Lightcone.x86_64 "${{ runner.temp }}/shots"
 
       - name: Export Windows build
         working-directory: src/Lightcone.App
@@ -114,6 +221,7 @@ jobs:
           timeout 600 "$GODOT" --headless --export-release Windows ../../build/godot-windows/Lightcone.exe 2>&1 | tee export-windows.log
           test -f ../../build/godot-windows/Lightcone.exe
           ! grep -E "^ERROR" export-windows.log
+          ../../tools/libmpv/bundle.sh ../../build/libmpv/windows ../../build/godot-windows
 
       - name: Headless CLI for Windows (lightcone-cli.exe)
         run: |
@@ -203,6 +311,10 @@ jobs:
           $cli = "build/godot-windows/lightcone-cli.exe"
           & $cli version;  if ($LASTEXITCODE) { exit 1 }
           & $cli settings; if ($LASTEXITCODE) { exit 1 }
+          # Bundled libmpv-2.dll next to the exe, every promised codec in it.
+          $probe = & $cli probe; $code = $LASTEXITCODE; $probe
+          if ($code) { exit 1 }
+          if (-not ($probe -match 'libmpv-2\.dll')) { throw 'bundled libmpv-2.dll not used' }
       - name: Exported app starts (headless)
         shell: pwsh
         run: |
@@ -220,6 +332,7 @@ jobs:
           $dest = Join-Path $env:RUNNER_TEMP 'Programs\Lightcone'
           & "$env:RUNNER_TEMP/unzipped/Lightcone/install.ps1" -Dest $dest -NoSteam
           if (-not (Test-Path "$dest/Lightcone.exe")) { throw 'not installed' }
+          if (-not (Test-Path "$dest/libmpv-2.dll")) { throw 'libmpv-2.dll not installed' }
           if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath('Programs')) 'Lightcone.lnk'))) { throw 'no Start menu entry' }
           (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Lightcone').DisplayVersion
           & "$dest/uninstall.ps1" -Quiet
@@ -227,35 +340,40 @@ jobs:
           if (Test-Path "$dest/Lightcone.exe") { throw 'not uninstalled' }
 
   macos:
-    # Tests on macOS, Homebrew libmpv through the CLI, then the .app: packaged, signed ad hoc,
-    # started headless.
+    # Tests on macOS against the bundled libmpv, then the .app: packaged with libmpv in
+    # Contents/Frameworks, signed ad hoc, the CLI probing the codecs, the app started headless.
     name: macOS (tests, libmpv, app bundle)
-    needs: [app]
+    needs: [app, libmpv-macos]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: libmpv from Homebrew
-        run: brew install mpv
+      - uses: actions/download-artifact@v4
+        with:
+          name: libmpv-macos
+          path: build/libmpv/macos
       - name: Build (warnings are errors)
         run: dotnet build Lightcone.sln -c Release
       - name: Test
         run: dotnet test Lightcone.sln -c Release --no-build --logger "console;verbosity=normal"
+        env:
+          LIGHTCONE_LIBMPV: ${{ github.workspace }}/build/libmpv/macos/libmpv.2.dylib
       - uses: actions/download-artifact@v4
         with:
           name: Lightcone-macos-export
           path: build/godot-macos
       - name: Package (Lightcone-macos-universal.zip)
-        run: tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli 0.0.0 dist-macos
+        run: tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli 0.0.0 dist-macos build/libmpv/macos
       - name: App bundle runs
         run: |
           ditto -x -k dist-macos/Lightcone-macos-universal.zip "$RUNNER_TEMP/app"
           app="$RUNNER_TEMP/app/Lightcone.app"
           lipo -archs "$app/Contents/MacOS/Lightcone"
           "$app/Contents/MacOS/lightcone-cli" version
-          "$app/Contents/MacOS/lightcone-cli" probe
+          "$app/Contents/MacOS/lightcone-cli" probe | tee probe.txt
+          grep -q "Contents/MacOS/../Frameworks/libmpv.2.dylib\|Contents/Frameworks/libmpv.2.dylib" probe.txt
           "$app/Contents/MacOS/Lightcone" --headless --quit-after 600 2>&1 | tee app-out.log
           cat ~/Library/Application\ Support/Lightcone/logs/app.log 2>/dev/null || true
           ! grep -E "Unhandled exception|System\.[A-Za-z.]*Exception" app-out.log
@@ -306,6 +424,8 @@ jobs:
           tools/release/package.sh build/godot "${{ steps.v.outputs.version }}" dist
           tools/release/package-windows.sh build/godot-windows "${{ steps.v.outputs.version }}" dist
           grep -q "Lightcone-linux-x86_64.tar.gz" dist/SHA256SUMS && grep -q "Lightcone-windows-x86_64.zip" dist/SHA256SUMS
+          tar -tzf dist/Lightcone-linux-x86_64.tar.gz | grep -q "Lightcone/lib/libmpv.so.2"
+          unzip -l dist/Lightcone-windows-x86_64.zip | grep -q "libmpv-2.dll"
           awk -v v="## ${{ steps.v.outputs.version }}" '$0==v{on=1;next} /^## /{on=0} on' CHANGELOG.md > dist/notes.md
           test -s dist/notes.md
       - uses: actions/upload-artifact@v4
@@ -342,10 +462,15 @@ jobs:
         with:
           name: Lightcone-macos-export
           path: build/godot-macos
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          name: libmpv-macos
+          path: build/libmpv/macos
       - name: Package macOS and publish
         if: steps.v.outputs.exists == 'false'
         run: |
-          tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli "${{ steps.v.outputs.version }}" dist
+          tools/release/package-macos.sh build/godot-macos/Lightcone.zip build/godot-macos/cli "${{ steps.v.outputs.version }}" dist build/libmpv/macos
           grep -q "Lightcone-macos-universal.zip" dist/SHA256SUMS
           gh release create "v${{ steps.v.outputs.version }}" dist/Lightcone-linux-x86_64.tar.gz dist/Lightcone-windows-x86_64.zip \
             dist/Lightcone-macos-universal.zip dist/SHA256SUMS \

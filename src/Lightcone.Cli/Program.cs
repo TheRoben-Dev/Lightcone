@@ -63,6 +63,16 @@ internal static class Cli
                     Console.WriteLine($"mpv:    {probe.GetString("mpv-version")}");
                     Console.WriteLine($"ffmpeg: {probe.GetString("ffmpeg-version")}");
                     Console.WriteLine($"hwdec:  {probe.GetString("hwdec-interop") ?? "(decided when a video opens)"}");
+                    var missing = Codecs.Missing(probe.GetString("decoder-list"));
+                    foreach (var (group, codecs) in Codecs.Required)
+                    {
+                        Console.WriteLine($"{group + ":",-11}{string.Join(' ', codecs.Select(c => missing.Contains(c) ? "-" + c : c))}");
+                    }
+                    if (missing.Count > 0)
+                    {
+                        Console.Error.WriteLine($"missing decoders: {string.Join(", ", missing)}");
+                        return 1;
+                    }
                     return 0;
                 }
                 case "steam-add":
