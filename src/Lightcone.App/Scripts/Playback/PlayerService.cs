@@ -262,8 +262,21 @@ public partial class PlayerService : Node
         _seekAt = Time.GetTicksMsec();
     }
 
+    /// <summary>During an episode's end credits with another episode after it: what the skip button plays instead.</summary>
+    public MediaItem? NextInsteadOfCredits =>
+        ActiveMarker is { Kind: Marker.Credits } && Current is { Kind: MediaKind.Episode } cur ? Host.Library.NextAfter(cur) : null;
+
+    public string? SkipLabel => ActiveMarker is { } m ? NextInsteadOfCredits != null ? "Next episode" : m.Label : null;
+
     public void SkipMarker()
     {
+        if (NextInsteadOfCredits is { } next && Current is { } cur)
+        {
+            AppLog.Info($"credits: on to {next.Id}");
+            Host.Library.SetWatched(cur, true);
+            Play(next, fromStart: true);
+            return;
+        }
         if (ActiveMarker is { } m)
         {
             SeekTo(m.End);

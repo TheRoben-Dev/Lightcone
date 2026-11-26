@@ -95,4 +95,24 @@ public class LibraryListsTests : IDisposable
         lib.Lists.DeleteCollection(mine.Id);
         Assert.DoesNotContain(lib.Collections(), c => MediaLibrary.IsUserCollection(c.Id));
     }
+
+    [Fact]
+    public void UpNextIsTheEpisodeAfterTheLastWatched()
+    {
+        var lib = Make();
+        var show = lib.Section(MediaKind.Show)[0];
+        var eps = lib.Children(show.Id);
+        Assert.Empty(lib.UpNext());
+        lib.SetWatched(eps[0], true);
+        lib.SetWatched(eps[1], true);
+        Assert.Equal([eps[2].Id], lib.UpNext().Select(e => e.Id));
+        Assert.Equal(eps[2].Id, lib.NextAfter(eps[1])!.Id);
+        Assert.Contains(lib.HomeRows().Single(r => r.Id == "continue").Items, i => i.Id == eps[2].Id);
+
+        lib.Report(eps[3], 120, eps[3].Duration);  // something in progress: that's what continues
+        Assert.Empty(lib.UpNext());
+        lib.SetWatched(eps[3], true);
+        // Watched out of order: up next follows the last watched episode (like Plex's On Deck).
+        Assert.Equal(eps.Count > 4 ? [eps[4].Id] : [], lib.UpNext().Select(e => e.Id));
+    }
 }

@@ -16,8 +16,9 @@ public sealed class ProgressStore
     private readonly object _gate = new();
     private Dictionary<string, Progress> _items;
     private HashSet<string> _watched;
+    private Dictionary<string, DateTime> _watchedAt;
 
-    private sealed record FileModel(Dictionary<string, Progress> Items, HashSet<string> Watched);
+    private sealed record FileModel(Dictionary<string, Progress> Items, HashSet<string> Watched, Dictionary<string, DateTime>? WatchedAt = null);
 
     public ProgressStore(string file)
     {
@@ -25,6 +26,16 @@ public sealed class ProgressStore
         var model = Load(file);
         _items = model?.Items ?? new();
         _watched = model?.Watched ?? new();
+        _watchedAt = model?.WatchedAt ?? new();
+    }
+
+    /// <summary>When the item was finished or marked watched on this device, if it was.</summary>
+    public DateTime? WatchedAt(string id)
+    {
+        lock (_gate)
+        {
+            return _watchedAt.TryGetValue(id, out var at) ? at : null;
+        }
     }
 
     private static FileModel? Load(string file)
@@ -65,6 +76,7 @@ public sealed class ProgressStore
             {
                 _items.Remove(id);
                 _watched.Add(id);
+                _watchedAt[id] = at ?? DateTime.UtcNow;
             }
             else if (ResumePolicy.PositionToSave(position, duration) is { } pos)
             {
@@ -86,10 +98,12 @@ public sealed class ProgressStore
             if (watched)
             {
                 _watched.Add(id);
+                _watchedAt[id] = DateTime.UtcNow;
             }
             else
             {
                 _watched.Remove(id);
+                _watchedAt.Remove(id);
             }
             Save();
         }
@@ -110,7 +124,7 @@ public sealed class ProgressStore
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
             var tmp = _file + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(new FileModel(_items, _watched)));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(new FileModel(_items, _watched, _watchedAt)));
             File.Move(tmp, _file, overwrite: true);
         }
         catch (IOException e)

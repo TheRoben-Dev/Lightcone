@@ -223,6 +223,40 @@ public sealed class MediaLibrary
             .Where(i => i.Playable && Visible(i) && PositionOf(i) != null && !IsWatched(i)).ToList();
     }
 
+    /// <summary>The episode or track after this one in its show or album, if any.</summary>
+    public MediaItem? NextAfter(MediaItem item) =>
+        item.ParentId == null ? null : Children(item.ParentId).SkipWhile(c => c.Id != item.Id).Skip(1).FirstOrDefault(c => c.Playable);
+
+    /// <summary>
+    /// Next episodes of shows being watched: the first unwatched episode after the last watched
+    /// one, for shows with nothing in progress. Most recently watched first.
+    /// </summary>
+    public IReadOnlyList<MediaItem> UpNext()
+    {
+        var result = new List<(MediaItem Next, DateTime At, DateTime Added)>();
+        var shows = All.Where(i => i.Kind == MediaKind.Show && Visible(i)).GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.First());
+        foreach (var g in All.Where(i => i.Kind == MediaKind.Episode && i.Playable && i.ParentId != null).GroupBy(i => i.ParentId!))
+        {
+            if (!shows.TryGetValue(g.Key, out var show))
+            {
+                continue;
+            }
+            var eps = g.OrderBy(i => i.Season ?? 0).ThenBy(i => i.Index ?? int.MaxValue).ToList();
+            var watched = eps.Select(IsWatched).ToList();
+            var last = watched.LastIndexOf(true);
+            if (last < 0 || eps.Any(e => !IsWatched(e) && PositionOf(e) != null))
+            {
+                continue;
+            }
+            var next = eps.Skip(last + 1).FirstOrDefault(e => !IsWatched(e));
+            if (next != null)
+            {
+                result.Add((next, Progress.WatchedAt(eps[last].Id) ?? DateTime.MinValue, show.Added));
+            }
+        }
+        return result.OrderByDescending(r => r.At).ThenByDescending(r => r.Added).Select(r => r.Next).ToList();
+    }
+
     public IReadOnlyList<Marker> MarkersOf(MediaItem item) =>
         _sources.FirstOrDefault(s => s.Id == item.SourceId)?.MarkersOf(item.Id) ?? [];
 
@@ -261,7 +295,8 @@ public sealed class MediaLibrary
     public IReadOnlyList<HomeRow> HomeRows(int perRow = 20)
     {
         var rows = new List<HomeRow>();
-        var resume = InProgress().Take(perRow).ToList();
+        // In progress first, then the next episode of shows being watched.
+        var resume = InProgress().Concat(UpNext()).DistinctBy(i => i.Id).Take(perRow).ToList();
         if (resume.Count > 0)
         {
             rows.Add(new HomeRow("continue", "Continue watching", resume, Wide: true));
