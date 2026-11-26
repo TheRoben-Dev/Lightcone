@@ -64,13 +64,13 @@ public partial class SmokeTest : Node
         Step("album-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Music");
         Step("home-continue", () => Tap(JoyButton.LeftShoulder, 3), wait: 1.5, tab: "Home");
         // Search: the View button (or /) opens it; typing filters across the library.
-        // The built-in keyboard: A types the focused key, Y deletes, X adds a space; a real keyboard types too.
+        // The built-in keyboard: A types the focused key, X deletes, Y adds a space; a real keyboard types too.
         Step("search", () => Tap(JoyButton.Back), wait: 1.0);
         Step("search-osk", () =>
         {
             Tap(JoyButton.A);  // "q"
-            Tap(JoyButton.X);  // space
-            Tap(JoyButton.Y, 2);  // delete both
+            Tap(JoyButton.Y);  // space
+            Tap(JoyButton.X, 2);  // delete both
         }, wait: 0.6);
         Step("search-type", () => TypeText("orbit"), wait: 1.2);
         Step("search-results", () =>
