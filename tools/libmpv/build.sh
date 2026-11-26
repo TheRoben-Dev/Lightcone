@@ -248,6 +248,8 @@ case "$OS" in
     MPV+=(-Dcocoa=enabled -Dgl-cocoa=enabled -Dvideotoolbox-gl=enabled -Dcoreaudio=enabled -Diconv=enabled)
     # libc++ for libplacebo's C++; the arch flags again, since these replace the cross file's link args.
     LINK="-lc++ $flags"
+    # Only .a files in our prefix anyway; prefer_static would hide the system's libiconv dylib.
+    STATIC=(-Dprefer_static=false --native-file "$WORK/native-static.txt")
     ;;
 esac
 meson setup $(wipe "$BUILD/mpv") "$BUILD/mpv" "$SRC/mpv" --prefix "$PREFIX" --libdir lib --buildtype release --default-library shared \
