@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Lightcone.Host</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lightcone.Core\Lightcone.Core.csproj" />
+    <ProjectReference Include="..\Lightcone.Playback\Lightcone.Playback.csproj" />
+    <InternalsVisibleTo Include="Lightcone.Core.Tests" />
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="CHANGELOG.md" />
+  </ItemGroup>
+</Project>

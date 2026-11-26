@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E76AD536-6DC6-4D1B-AC72-51ED247C8AFA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lightcone.Core", "src\Lightcone.Core\Lightcone.Core.csproj", "{D9806636-BB39-4827-A64A-2DCDED5D5B3B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lightcone.Host", "src\Lightcone.Host\Lightcone.Host.csproj", "{BBF4876B-2138-4D39-9B85-29F1A214F59F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lightcone.Playback", "src\Lightcone.Playback\Lightcone.Playback.csproj", "{29492EB8-81FE-4F05-9BDC-388D60586DF3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lightcone.Cli", "src\Lightcone.Cli\Lightcone.Cli.csproj", "{42FE1937-D704-442F-9369-3F68EC888CC6}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{92A341DD-275A-4938-8F09-4B6193672529}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lightcone.Core.Tests", "tests\Lightcone.Core.Tests\Lightcone.Core.Tests.csproj", "{6D644DB7-2E80-4403-9114-7A86B9A70711}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D9806636-BB39-4827-A64A-2DCDED5D5B3B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D9806636-BB39-4827-A64A-2DCDED5D5B3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D9806636-BB39-4827-A64A-2DCDED5D5B3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D9806636-BB39-4827-A64A-2DCDED5D5B3B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BBF4876B-2138-4D39-9B85-29F1A214F59F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BBF4876B-2138-4D39-9B85-29F1A214F59F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BBF4876B-2138-4D39-9B85-29F1A214F59F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BBF4876B-2138-4D39-9B85-29F1A214F59F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{29492EB8-81FE-4F05-9BDC-388D60586DF3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{29492EB8-81FE-4F05-9BDC-388D60586DF3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{29492EB8-81FE-4F05-9BDC-388D60586DF3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{29492EB8-81FE-4F05-9BDC-388D60586DF3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{42FE1937-D704-442F-9369-3F68EC888CC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{42FE1937-D704-442F-9369-3F68EC888CC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{42FE1937-D704-442F-9369-3F68EC888CC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{42FE1937-D704-442F-9369-3F68EC888CC6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6D644DB7-2E80-4403-9114-7A86B9A70711}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D644DB7-2E80-4403-9114-7A86B9A70711}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D644DB7-2E80-4403-9114-7A86B9A70711}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D644DB7-2E80-4403-9114-7A86B9A70711}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{D9806636-BB39-4827-A64A-2DCDED5D5B3B} = {E76AD536-6DC6-4D1B-AC72-51ED247C8AFA}
+		{BBF4876B-2138-4D39-9B85-29F1A214F59F} = {E76AD536-6DC6-4D1B-AC72-51ED247C8AFA}
+		{29492EB8-81FE-4F05-9BDC-388D60586DF3} = {E76AD536-6DC6-4D1B-AC72-51ED247C8AFA}
+		{42FE1937-D704-442F-9369-3F68EC888CC6} = {E76AD536-6DC6-4D1B-AC72-51ED247C8AFA}
+		{6D644DB7-2E80-4403-9114-7A86B9A70711} = {92A341DD-275A-4938-8F09-4B6193672529}
+	EndGlobalSection
+EndGlobal

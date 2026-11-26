@@ -1,0 +1,13 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Lightcone.App</RootNamespace>
+    <AssemblyName>Lightcone.App</AssemblyName>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lightcone.Host\Lightcone.Host.csproj" />
+    <ProjectReference Include="..\Lightcone.Playback\Lightcone.Playback.csproj" />
+  </ItemGroup>
+</Project>

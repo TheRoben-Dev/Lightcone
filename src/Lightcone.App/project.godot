@@ -1,0 +1,48 @@
+; Engine configuration file.
+; Hand-maintained: keep it minimal. All UI is built in code (Scripts/), see docs/architecture.md.
+
+config_version=5
+
+[application]
+
+config/name="Lightcone"
+config/description="Controller-first media hub for SteamOS, Bazzite, TVs and desktops"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#")
+run/low_processor_mode=true
+boot_splash/bg_color=Color(0.039, 0.043, 0.063, 1)
+boot_splash/show_image=false
+config/icon="res://icon.svg"
+config/windows_native_icon="res://icon.ico"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=800
+window/size/mode=3
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/energy_saving/keep_screen_on=false
+
+[dotnet]
+
+project/assembly_name="Lightcone.App"
+
+[gui]
+
+common/drop_mouse_on_gui_input_disabled=true
+timers/tooltip_delay_sec=1.2
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=false
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+; EGL on Linux (X11 and Wayland) so libmpv can map VA-API frames straight into GL textures.
+gl_compatibility/driver.linuxbsd="opengl3_es"
+environment/defaults/default_clear_color=Color(0.039, 0.043, 0.063, 1)
+; Apple silicon (universal macOS build) needs ETC2/ASTC textures.
+textures/vram_compression/import_etc2_astc=true
