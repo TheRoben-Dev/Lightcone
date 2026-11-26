@@ -72,6 +72,7 @@ cpp = '$CXX'
 ar = '$T-ar'
 strip = '$T-strip'
 windres = '$T-windres'
+dlltool = '$T-dlltool'
 pkg-config = '$WORK/pkg-config-static'
 [properties]
 pkg_config_libdir = '$PREFIX/lib/pkgconfig'
