@@ -12,16 +12,52 @@ public interface IMediaSource
     /// <summary>"Folder", "Jellyfin", "Plex", "Demo".</summary>
     string Type { get; }
 
+    /// <summary>Shown on the Sources screen: "Connected", "Offline, showing what was saved"…</summary>
+    string Status => "Connected";
+
+    /// <summary>False while the source can't be reached (its items are what was saved).</summary>
+    bool Online => true;
+
     /// <summary>Every item the source has (cached; Refresh fetches again).</summary>
     IReadOnlyList<MediaItem> Items { get; }
 
-    /// <summary>Resume position the source knows (server-side progress), seconds.</summary>
-    double? PositionOf(string itemId) => null;
+    /// <summary>Resume position the server knows (progress from any device), or null.</summary>
+    Progress? ServerProgress(string itemId) => null;
+
+    /// <summary>Watched state the server knows, or null when it doesn't track one.</summary>
+    bool? ServerWatched(string itemId) => null;
+
+    /// <summary>Playback progress, for the server (called every few seconds while playing, and on pause and stop).</summary>
+    void OnProgress(MediaItem item, double position, double? duration, PlaybackState state)
+    {
+    }
+
+    /// <summary>Marked watched or unwatched by the user.</summary>
+    void OnWatched(MediaItem item, bool watched)
+    {
+    }
+
+    /// <summary>Called when an item starts playing: fetch what only matters then (intro / credits markers).</summary>
+    Task PrepareAsync(MediaItem item, CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>Raised when the source's items or state changed (after a refresh).</summary>
+    event Action? Changed
+    {
+        add { }
+        remove { }
+    }
 
     /// <summary>Intro / credits markers when the server provides them.</summary>
     IReadOnlyList<Marker> MarkersOf(string itemId) => [];
 
     Task RefreshAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
+public enum PlaybackState
+{
+    Playing,
+    Paused,
+    Stopped,
 }
 
 /// <summary>A skippable section of a video (seconds).</summary>

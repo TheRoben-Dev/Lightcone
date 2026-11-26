@@ -5,7 +5,7 @@ namespace Lightcone.App.Ui;
 /// <summary>
 /// Lightcone's own on-screen keyboard, so a controller can type on every OS (Windows, macOS and
 /// desktop Linux have no controller keyboard of their own). D-pad and stick move between keys
-/// (up/down land on the key nearest in x), A types, Y deletes, X adds a space, Start is Done.
+/// (up/down land on the key nearest in x), A types, X deletes, Y adds a space, Start is Done.
 /// Ported from Luma-Modman's keyboard (same layout, same buttons), so it feels the same in both
 /// apps. Used by the search page and every text entry page.
 /// </summary>
@@ -165,17 +165,17 @@ public partial class OnScreenKeyboard : VBoxContainer
     }
 
     /// <summary>
-    /// Pad shortcuts while the keyboard is on screen: Y deletes, X adds a space. Returns true when
+    /// Pad shortcuts while the keyboard is on screen: X deletes, Y adds a space. Returns true when
     /// handled. (Start = Done is up to the page.)
     /// </summary>
     public bool OnAction(string action)
     {
-        if (action == Pad.Secondary)
+        if (action == Pad.Tertiary)
         {
             Deleted?.Invoke();
             return true;
         }
-        if (action == Pad.Tertiary)
+        if (action == Pad.Secondary)
         {
             Type(" ");
             return true;

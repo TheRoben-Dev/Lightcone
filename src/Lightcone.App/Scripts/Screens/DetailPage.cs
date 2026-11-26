@@ -16,7 +16,7 @@ public partial class DetailPage : Screen
     public DetailPage(MediaItem item) => _item = item;
 
     public override IEnumerable<(string Action, string Label)> Hints =>
-        _item.Playable ? [(Pad.Secondary, Host.Library.Progress.IsWatched(_item.Id) ? "Mark unwatched" : "Mark watched")] : [];
+        _item.Playable ? [(Pad.Secondary, Host.Library.IsWatched(_item) ? "Mark unwatched" : "Mark watched")] : [];
 
     protected override void Build()
     {
@@ -84,7 +84,7 @@ public partial class DetailPage : Screen
             {
                 Act("▶  Play", () => MediaActions.Play(_item), $"{_item.Title}: play");
             }
-            var watched = lib.Progress.IsWatched(_item.Id);
+            var watched = lib.IsWatched(_item);
             Act(watched ? "Mark unwatched" : "Mark watched", ToggleWatched, $"{_item.Title}: mark {(watched ? "unwatched" : "watched")}");
         }
         else if (children.Count > 0)
@@ -106,10 +106,10 @@ public partial class DetailPage : Screen
             foreach (var c in children)
             {
                 var progress = PosterTile.ProgressOf(lib, c);
-                var status = lib.Progress.IsWatched(c.Id) ? "Watched" : progress is { } p ? $"{p * 100:0}%" : c.DurationText;
-                var label = c.Index is { } n ? $"{n}.  {c.Title}" : c.Title;
+                var status = lib.IsWatched(c) ? "Watched" : progress is { } p ? $"{p * 100:0}%" : c.DurationText;
+                var label = c.Index is { } n ? (c.Season is { } sn && children.Any(x => x.Season != sn) ? $"S{sn} E{n}.  {c.Title}" : $"{n}.  {c.Title}") : c.Title;
                 var row = new ListRow(label, c.Kind == MediaKind.Episode ? "" : c.Subtitle ?? "", status,
-                    lib.Progress.IsWatched(c.Id) ? UiTheme.Good : UiTheme.Dim, onPress: () => MediaActions.Play(c), help: $"{c.Title}: play")
+                    lib.IsWatched(c) ? UiTheme.Good : UiTheme.Dim, onPress: () => MediaActions.Play(c), help: $"{c.Title}: play")
                 {
                     CustomMinimumSize = new Vector2(0, Desktop ? 48 : 60),
                 };
@@ -128,7 +128,7 @@ public partial class DetailPage : Screen
     private void ToggleWatched()
     {
         var lib = Host.Library;
-        lib.Progress.SetWatched(_item.Id, !lib.Progress.IsWatched(_item.Id));
+        lib.SetWatched(_item, !lib.IsWatched(_item));
         Rebuild();
         App.UpdateChrome();
     }

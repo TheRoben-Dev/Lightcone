@@ -26,21 +26,39 @@ public partial class SourcesScreen : Screen
             var movies = s.Items.Count(i => i.Kind == MediaKind.Movie);
             var shows = s.Items.Count(i => i.Kind == MediaKind.Show);
             var albums = s.Items.Count(i => i.Kind == MediaKind.Album);
-            var row = new ListRow(s.Name, $"{s.Type}  ·  {movies} movies, {shows} shows, {albums} albums", "Connected", UiTheme.Good,
-                onPress: () => App.Toast($"{s.Name}: nothing to change yet"), help: $"{s.Name} ({s.Type})");
+            var source = s;
+            var row = new ListRow(s.Name, $"{s.Type}  ·  {movies} movies, {shows} shows, {albums} albums", s.Status, s.Online ? UiTheme.Good : UiTheme.Warn,
+                onPress: () => SourceOptions(source), help: $"{s.Name} ({s.Type}): {s.Status}");
+            row.SetMeta(PosterTile.NoHelp, true);
             col.AddChild(row);
             rows.Add(row);
         }
-        col.AddChild(Section("Add a source"));
-        void Add(string title, string detail, string when)
+        var plex = Host.Plex;
+        if (plex.Account.SignedIn)
         {
-            var row = new ListRow(title, detail, when, UiTheme.Dim, onPress: () => App.Toast($"{title}: {when.ToLowerInvariant()}."), help: $"{title}. {detail}");
+            col.AddChild(Section("Plex account"));
+            var account = new ListRow($"Plex · {plex.Account.Name ?? "signed in"}", "Choose servers, or sign out.", "Signed in", UiTheme.Good,
+                onPress: PlexAccountOptions, help: "Plex account");
+            account.SetMeta(PosterTile.NoHelp, true);
+            col.AddChild(account);
+            rows.Add(account);
+        }
+        col.AddChild(Section("Add a source"));
+        void Add(string title, string detail, string when, Action? press = null)
+        {
+            var row = new ListRow(title, detail, when, press != null ? UiTheme.AccentText : UiTheme.Dim,
+                onPress: press ?? (() => App.Toast($"{title}: {when.ToLowerInvariant()}.")), help: $"{title}. {detail}");
+            row.SetMeta(PosterTile.NoHelp, true);
             col.AddChild(row);
             rows.Add(row);
         }
         Add("Folder", "Movies, shows or music on this device, an SD card or a network share. Artwork and details from TMDB and MusicBrainz.", "Next update");
+        if (!plex.Account.SignedIn)
+        {
+            Add("Plex", "Sign in with a code at plex.tv/link: libraries, continue watching, progress sync, intro and credit skipping.", "Sign in",
+                () => App.Push(new PlexSignInPage()));
+        }
         Add("Jellyfin", "Sign in to a Jellyfin server: libraries, continue watching, progress sync, intro and credit skipping.", "Coming soon");
-        Add("Plex", "Sign in with your Plex account: libraries, continue watching, progress sync, intro and credit markers.", "Coming soon");
         Add("Find servers on this network", "DLNA / UPnP media servers.", "Later");
         col.AddChild(Section("Sample library"));
         var demo = Toggle.Create("Sample library", Host.Settings.DemoLibrary, on =>
@@ -57,4 +75,50 @@ public partial class SourcesScreen : Screen
     }
 
     public override void FocusDefault() => _first?.GrabFocus();
+
+    private void SourceOptions(IMediaSource s)
+    {
+        if (s is Lightcone.Host.Plex.PlexSource p)
+        {
+            App.Push(new ChoicePage($"{p.Name} (Plex): {p.Status}.",
+                ("Refresh now", () => App.Busy($"Refreshing {p.Name}…", async (_, ct) =>
+                {
+                    await p.RefreshAsync(ct);
+                    return p.Online;
+                }, ok =>
+                {
+                    if (ok)
+                    {
+                        App.Success($"{p.Name} is up to date");
+                    }
+                    else
+                    {
+                        App.Error($"{p.Name}: {p.Status}");
+                    }
+                })),
+                ("Remove from Lightcone", () => App.Confirm($"Stop showing {p.Name}? Your Plex account stays signed in.", "Remove", () =>
+                {
+                    Host.Plex.RemoveServer(p.Entry.MachineId);
+                    Rebuild();
+                })),
+                ("Cancel", () => { })));
+        }
+        else
+        {
+            App.Toast($"{s.Name}: nothing to change yet");
+        }
+    }
+
+    private void PlexAccountOptions()
+    {
+        App.Push(new ChoicePage($"Plex account: {Host.Plex.Account.Name}.",
+            ("Choose servers", () => App.Busy("Finding your servers…", (_, ct) => Host.Plex.ServersAsync(ct),
+                servers => App.Push(new PlexServersPage(servers)))),
+            ("Sign out", () => App.Confirm("Sign out of Plex? Its servers disappear from Lightcone until you sign in again.", "Sign out", () =>
+            {
+                Host.Plex.SignOut();
+                Rebuild();
+            })),
+            ("Cancel", () => { })));
+    }
 }

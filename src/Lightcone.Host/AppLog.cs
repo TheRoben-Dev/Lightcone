@@ -50,8 +50,15 @@ public static class AppLog
 
     public static void Error(string message) => Write("ERROR", message);
 
+    private static readonly System.Text.RegularExpressions.Regex Secrets =
+        new(@"(X-Plex-Token=|api_key=|token=)[^&\s""']+", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Tokens in URLs never reach the log (people attach it to bug reports).</summary>
+    public static string Scrub(string message) => Secrets.Replace(message, "$1***");
+
     private static void Write(string level, string message)
     {
+        message = Scrub(message);
         lock (Gate)
         {
             try

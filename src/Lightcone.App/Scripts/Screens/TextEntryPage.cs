@@ -4,7 +4,7 @@ using Godot;
 namespace Lightcone.App.Screens;
 
 /// <summary>
-/// Text entry that works with a controller alone: Lightcone's on-screen keyboard (Y deletes, X adds
+/// Text entry that works with a controller alone: Lightcone's on-screen keyboard (X deletes, Y adds
 /// a space, Start is Done), plus Paste for API keys copied in a browser. A real keyboard types
 /// straight into the field. Secret text (keys) is masked apart from its last four characters.
 /// </summary>
@@ -28,7 +28,7 @@ public partial class TextEntryPage : Screen
     }
 
     public override IEnumerable<(string Action, string Label)> Hints =>
-        [(Pad.Secondary, "Delete"), (Pad.Tertiary, "Space"), (Pad.Menu, "Done")];
+        [(Pad.Tertiary, "Delete"), (Pad.Secondary, "Space"), (Pad.Menu, "Done")];
 
     protected override void Build()
     {

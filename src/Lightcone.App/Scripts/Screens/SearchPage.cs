@@ -8,7 +8,7 @@ namespace Lightcone.App.Screens;
 /// <summary>
 /// Search everything (all sources). With a controller (always in Controller mode, and in Desktop
 /// mode when the last input was a pad) Lightcone's own keyboard sits left of the results, which
-/// update as you type: Y deletes, X adds a space, right from the keyboard goes to the results.
+/// update as you type: X deletes, Y adds a space, right from the keyboard goes to the results.
 /// With a mouse and keyboard it is a plain search field. Steam's keyboard is never used.
 /// </summary>
 public partial class SearchPage : Screen
@@ -23,7 +23,7 @@ public partial class SearchPage : Screen
     public SearchPage(string query = "") => _query = query;
 
     public override IEnumerable<(string Action, string Label)> Hints =>
-        _keys != null ? [(Pad.Secondary, "Delete"), (Pad.Tertiary, "Space")] : [];
+        _keys != null ? [(Pad.Tertiary, "Delete"), (Pad.Secondary, "Space")] : [];
 
     private static bool UseKeyboard => !Desktop || Pad.LastFamily != PadFamily.Keyboard;
 
