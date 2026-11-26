@@ -149,6 +149,7 @@ fetch_tar harfbuzz "$HARFBUZZ_TAR"
 fetch_tar libass "$LIBASS_TAR"
 fetch_tar mbedtls "$MBEDTLS_TAR"
 fetch_tar zlib "$ZLIB_TAR"
+[ "$OS" = linux ] && fetch_tar libdrm "$LIBDRM_TAR"
 
 meson_static() {  # name [options...]
   local name=$1; shift
@@ -167,6 +168,14 @@ if [ "$OS" = windows ] && step zlib; then
   printf 'prefix=%s\nName: zlib\nDescription: zlib\nVersion: 1.3.1\nLibs: -L${prefix}/lib -lz\nCflags: -I${prefix}/include\n' "$PREFIX" \
     > "$PREFIX/lib/pkgconfig/zlib.pc"
   fin zlib
+fi
+
+# ---- libdrm (Linux): mpv needs >= 2.4.105, the Steam Runtime has 2.4.104. Only the core library,
+# linked in privately; it is a thin ioctl wrapper, and libva-drm keeps using the OS's copy. ----
+if [ "$OS" = linux ]; then
+  meson_static libdrm -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled -Dnouveau=disabled -Dvmwgfx=disabled \
+    -Domap=disabled -Dexynos=disabled -Dfreedreno=disabled -Dtegra=disabled -Dvc4=disabled -Detnaviv=disabled \
+    -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled -Dinstall-test-programs=false -Dudev=false -Dtests=false
 fi
 
 # ---- text rendering (subtitles) ----

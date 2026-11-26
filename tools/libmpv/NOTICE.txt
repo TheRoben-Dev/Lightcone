@@ -16,6 +16,7 @@ repository; the exact versions are listed in libmpv-versions.txt next to it. It 
   HarfBuzz     MIT ("Old MIT")                                https://harfbuzz.github.io
   FriBidi      LGPL 2.1 or later                              https://github.com/fribidi/fribidi
   Mbed TLS     Apache 2.0 (Linux and Windows builds)          https://github.com/Mbed-TLS/mbedtls
+  libdrm       MIT (Linux build)                              https://gitlab.freedesktop.org/mesa/drm
   zlib         zlib Licence (Windows build)                   https://zlib.net
 
 As the LGPL requires, the complete corresponding source is available: every component above is
