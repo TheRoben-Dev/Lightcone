@@ -98,6 +98,15 @@ public class SteamShortcutsTests : IDisposable
         Assert.Equal(SteamFile(), File.ReadAllBytes(Path.Combine(config, "shortcuts.vdf")));
     }
 
+    [MacFact]
+    public void FindsMacSteamAccountsInApplicationSupport()
+    {
+        Assert.Empty(SteamShortcuts.AccountConfigDirs(_home));
+        var config = Path.Combine(_home, "Library", "Application Support", "Steam", "userdata", "777", "config");
+        Directory.CreateDirectory(config);
+        Assert.Equal([config], SteamShortcuts.AccountConfigDirs(_home));
+    }
+
     [LinuxFact]
     public void FindsSignedInAccountsOnceAndStartsAnEmptyFile()
     {

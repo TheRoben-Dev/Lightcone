@@ -2,14 +2,26 @@ using Xunit;
 
 namespace Lightcone.Core.Tests;
 
-/// <summary>A test of Linux behaviour (XDG folders, Proton prefixes, Flatpak): skipped on Windows.</summary>
+/// <summary>A test of Linux behaviour (XDG folders, Steam's Linux layout, Flatpak): skipped elsewhere.</summary>
 public sealed class LinuxFactAttribute : FactAttribute
 {
     public LinuxFactAttribute()
     {
-        if (OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsLinux())
         {
             Skip = "Linux only";
+        }
+    }
+}
+
+/// <summary>A test of macOS behaviour (Library folders, Steam in Application Support): skipped elsewhere.</summary>
+public sealed class MacFactAttribute : FactAttribute
+{
+    public MacFactAttribute()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            Skip = "macOS only";
         }
     }
 }
