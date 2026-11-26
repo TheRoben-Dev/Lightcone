@@ -58,7 +58,8 @@ public partial class SourcesScreen : Screen
             Add("Plex", "Sign in with a code at plex.tv/link: libraries, continue watching, progress sync, intro and credit skipping.", "Sign in",
                 () => App.Push(new PlexSignInPage()));
         }
-        Add("Jellyfin", "Sign in to a Jellyfin server: libraries, continue watching, progress sync, intro and credit skipping.", "Coming soon");
+        Add("Jellyfin", "Find a server on this network or type its address, then sign in with Quick Connect: libraries, continue watching, progress sync, box sets, intro skipping.",
+            Host.Jellyfin.Sources.Count > 0 ? "Add another" : "Add server", () => App.Push(new JellyfinAddPage()));
         Add("Find servers on this network", "DLNA / UPnP media servers.", "Later");
         col.AddChild(Section("Sample library"));
         var demo = Toggle.Create("Sample library", Host.Settings.DemoLibrary, on =>
@@ -99,6 +100,33 @@ public partial class SourcesScreen : Screen
                 ("Remove from Lightcone", () => App.Confirm($"Stop showing {p.Name}? Your Plex account stays signed in.", "Remove", () =>
                 {
                     Host.Plex.RemoveServer(p.Entry.MachineId);
+                    Rebuild();
+                })),
+                ("Cancel", () => { })));
+        }
+        else if (s is Lightcone.Host.Jellyfin.JellyfinSource j)
+        {
+            App.Push(new ChoicePage($"{j.Name} (Jellyfin, signed in as {j.Entry.UserName}): {j.Status}.",
+                ("Refresh now", () => App.Busy($"Refreshing {j.Name}…", async (_, ct) =>
+                {
+                    await j.RefreshAsync(ct);
+                    return j.Online;
+                }, ok =>
+                {
+                    if (ok)
+                    {
+                        App.Success($"{j.Name} is up to date");
+                    }
+                    else
+                    {
+                        App.Error($"{j.Name}: {j.Status}");
+                    }
+                })),
+                ("Sign in again", () => App.Busy("Connecting to Jellyfin…", (_, ct) => Host.Jellyfin.Client.PublicInfoAsync(j.Entry.Url, ct),
+                    info => App.Push(new JellyfinSignInPage(info)))),
+                ("Remove and sign out", () => App.Confirm($"Remove {j.Name} from Lightcone and sign this device out of it?", "Remove", () =>
+                {
+                    Host.Jellyfin.RemoveServer(j.Entry.ServerId);
                     Rebuild();
                 })),
                 ("Cancel", () => { })));

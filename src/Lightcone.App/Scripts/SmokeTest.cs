@@ -110,6 +110,19 @@ public partial class SmokeTest : Node
             Tap(JoyButton.A);
         }, wait: 1.2, expect: "Open plex.tv/link", tab: "Sources");
         Step("plex-sign-in-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Sources");
+        // Jellyfin: servers on this network (none in the smoke test) or an address, then Quick Connect.
+        Step("jellyfin-add", () =>
+        {
+            JellyfinAddPage.Offline = true;
+            FindFocusable(GetTree().Root, "Jellyfin. Find a server")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.2, expect: "Enter the server's address", tab: "Sources");
+        Step("jellyfin-sign-in", () =>
+        {
+            JellyfinSignInPage.Offline = true;
+            Main.Instance.Push(new JellyfinSignInPage(new Lightcone.Host.Jellyfin.JellyfinServerInfo("http://192.168.1.30:8096", "demo", "Basement", "10.10.3")));
+        }, wait: 1.2, expect: "Sign in with user name and password", tab: "Sources");
+        Step("jellyfin-back", () => Tap(JoyButton.B, 2), wait: 1.2, tab: "Sources");
         Step("settings", () => Tap(JoyButton.RightShoulder), wait: 1.2, expect: "Playback", tab: "Settings");
         Step("playback-pane", () => Press(Pad.Accept), expect: "Decode video on the GPU");
         Step("playback-hwdec", () => Press("ui_right"), expect: "Decode video on the GPU");

@@ -3,6 +3,12 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.5.0
+
+- Jellyfin: Sources → Jellyfin finds servers on your network (or type the address with the built-in keyboard), then sign in with Quick Connect: approve a 6-digit code from any device already signed in, no typing. User name and password work too.
+- Jellyfin movies, shows and music show up next to everything else with artwork; resume positions and watched state sync both ways, box sets become collections, and intro / credits segments (Jellyfin 10.10+) give Skip intro and Skip credits.
+- Several Jellyfin servers can be added; each can be refreshed, signed in again or removed from Sources.
+
 ## 0.4.0
 
 - Watchlist: X on a movie or show (or its Watchlist button) keeps it for later, and Home shows a Watchlist row. Signed in to Plex, it's your Plex watchlist, so it matches every Plex app.

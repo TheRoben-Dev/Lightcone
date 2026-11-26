@@ -97,6 +97,9 @@ public sealed class AppHost
     /// <summary>The Plex account and its servers (sources in <see cref="Library"/>).</summary>
     public Plex.PlexService Plex { get; }
 
+    /// <summary>Jellyfin servers (sources in <see cref="Library"/>).</summary>
+    public Jellyfin.JellyfinService Jellyfin { get; }
+
     /// <summary>Raised after settings are saved (the app re-applies what changed).</summary>
     public event Action<AppSettings>? SettingsChanged;
 
@@ -118,6 +121,7 @@ public sealed class AppHost
         };
         ApplyDemo(Settings.DemoLibrary);
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
+        Jellyfin = new Jellyfin.JellyfinService(Library, Paths.Config, Paths.Data, http);
     }
 
     /// <summary>Adds or removes the sample library.</summary>
