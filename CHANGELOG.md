@@ -10,6 +10,8 @@ the in-app "What's new" page.
 - Several Jellyfin servers can be added; each can be refreshed, signed in again or removed from Sources.
 - Up next: Continue watching also lists the next episode of shows you're watching (Home's top card says Up next).
 - During an episode's end credits, the skip button becomes Next episode (Y).
+- Tiles show a ✓ for watched movies and episodes, how many episodes of a show are left, and a ribbon for the watchlist.
+- Shows count as recently added when a new episode arrives (Home and the date-added sort).
 
 ## 0.4.0
 

@@ -60,6 +60,11 @@ public partial class PosterTile : Button
         AddChild(col);
         // The caption below names the item, so placeholder art shows only its kind.
         _art = new PosterArt(item, size, progress, showTitle: false);
+        if (Main.Instance?.Host?.Library is { } lib)
+        {
+            _art.Badge = BadgeFor(lib, item);
+            _art.OnWatchlist = item.Kind is MediaKind.Movie or MediaKind.Show && lib.OnWatchlist(item);
+        }
         col.AddChild(_art);
         _title = UiTheme.Label(item.Title, desktop ? UiTheme.SmallSize + 1 : UiTheme.SmallSize + 3, UiTheme.Text);
         _title.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
@@ -89,6 +94,20 @@ public partial class PosterTile : Button
     {
         _art.Focused = on;
         _title.AddThemeColorOverride("font_color", on ? UiTheme.AccentText : UiTheme.Text);
+    }
+
+    /// <summary>"✓" for a watched movie or episode, the unwatched count for a show being watched, else null.</summary>
+    public static string? BadgeFor(MediaLibrary lib, MediaItem item)
+    {
+        if (item.Kind is MediaKind.Movie or MediaKind.Episode)
+        {
+            return lib.IsWatched(item) ? "✓" : null;
+        }
+        if (lib.UnwatchedCount(item) is { } n && lib.Children(item.Id).Count is var total and > 0)
+        {
+            return n == 0 ? "✓" : n < total ? n.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        }
+        return null;
     }
 
     /// <summary>Progress fraction for an item from the library's resume data.</summary>

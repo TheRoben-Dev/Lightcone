@@ -18,6 +18,12 @@ public partial class PosterArt : Control
     private float _texAlpha = 1;
     private readonly float _radius;
     private double? _progress;
+
+    /// <summary>Small corner label: "✓" (watched) or a show's unwatched episode count.</summary>
+    public string? Badge { get; set; }
+
+    /// <summary>Draws a watchlist ribbon.</summary>
+    public bool OnWatchlist { get; set; }
     private Label? _title;
     private bool _focused;
 
@@ -257,6 +263,28 @@ public partial class PosterArt : Control
             var track = new Rect2(0, Size.Y - h, Size.X, h);
             DrawRect(track, new Color(0, 0, 0, 0.55f));
             DrawRect(new Rect2(track.Position, new Vector2((float)(Size.X * Math.Clamp(p, 0, 1)), h)), UiTheme.Accent);
+        }
+        if (Badge is { Length: > 0 } badge)
+        {
+            // Top right: ✓ for watched, the number of unwatched episodes for a show.
+            var font = UiTheme.CurrentFont;
+            var fs = Mathf.Clamp((int)(Size.Y * 0.06f), 11, 18);
+            var tw = font.GetStringSize(badge, HorizontalAlignment.Left, -1, fs).X;
+            var h = fs + 10;
+            var w = Mathf.Max(h, tw + 14);
+            var pill = new Rect2(Size.X - w - 8, 8, w, h);
+            var box = new StyleBoxFlat { BgColor = badge == "✓" ? UiTheme.Accent : new Color(0, 0, 0, 0.72f), AntiAliasing = true };
+            box.SetCornerRadiusAll((int)(h / 2));
+            DrawStyleBox(box, pill);
+            DrawString(font, new Vector2(pill.Position.X + (w - tw) / 2, pill.Position.Y + h / 2 + fs * 0.36f), badge, HorizontalAlignment.Left, -1, fs, Colors.White);
+        }
+        if (OnWatchlist)
+        {
+            // Top left: a small ribbon.
+            var rw = Mathf.Clamp(Size.X * 0.09f, 12, 20);
+            var rh = rw * 1.5f;
+            var c = UiTheme.Accent;
+            DrawPolygon([new Vector2(10, 0), new Vector2(10 + rw, 0), new Vector2(10 + rw, rh), new Vector2(10 + rw / 2, rh - rw * 0.4f), new Vector2(10, rh)], [c, c, c, c, c]);
         }
         if (_focused)
         {
