@@ -1,6 +1,7 @@
 using Lightcone.App.Playback;
 using Lightcone.App.Ui;
 using Godot;
+using Lightcone.App.Screens;
 
 namespace Lightcone.App;
 
@@ -79,6 +80,14 @@ public partial class SmokeTest : Node
         }, wait: 0.8, expect: "Glass Orbit");
         Step("search-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
         Step("sources", () => Tap(JoyButton.LeftShoulder, 2), wait: 1.2, tab: "Sources");
+        // Plex sign-in (no network in the smoke test: the page shows a stand-in code).
+        Step("plex-sign-in", () =>
+        {
+            PlexSignInPage.Offline = true;
+            FindFocusable(GetTree().Root, "Plex. Sign in")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.2, expect: "Open plex.tv/link", tab: "Sources");
+        Step("plex-sign-in-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Sources");
         Step("settings", () => Tap(JoyButton.RightShoulder), wait: 1.2, expect: "Playback", tab: "Settings");
         Step("playback-pane", () => Press(Pad.Accept), expect: "Decode video on the GPU");
         Step("playback-hwdec", () => Press("ui_right"), expect: "Decode video on the GPU");

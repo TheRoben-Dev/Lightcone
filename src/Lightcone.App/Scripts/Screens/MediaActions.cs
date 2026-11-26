@@ -45,7 +45,7 @@ public static class MediaActions
             return;
         }
         var next = shuffle ? children[Random.Shared.Next(children.Count)]
-            : children.FirstOrDefault(c => lib.PositionOf(c) != null) ?? children.FirstOrDefault(c => !lib.Progress.IsWatched(c.Id)) ?? children[0];
+            : children.FirstOrDefault(c => lib.PositionOf(c) != null) ?? children.FirstOrDefault(c => !lib.IsWatched(c)) ?? children[0];
         Play(next);
     }
 }

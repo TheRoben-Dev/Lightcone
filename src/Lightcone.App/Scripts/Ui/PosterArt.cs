@@ -14,10 +14,11 @@ public partial class PosterArt : Control
     private static readonly Dictionary<string, ImageTexture?> Cache = new();
 
     private readonly MediaItem _item;
-    private readonly ImageTexture? _tex;
+    private ImageTexture? _tex;
+    private float _texAlpha = 1;
     private readonly float _radius;
     private double? _progress;
-    private readonly Label? _title;
+    private Label? _title;
     private bool _focused;
 
     /// <summary>Draws the focus ring inside the art (tiles draw their own focus).</summary>
@@ -36,8 +37,9 @@ public partial class PosterArt : Control
         _item = item;
         _radius = radius;
         _progress = progress;
-        _tex = Load(item.Poster);
+        _tex = Load(item.Poster) ?? (item.PosterUrl is { } url ? RemoteImage.Cached(url) : null);
         CustomMinimumSize = size;
+        Material = RoundedMaterial(Math.Min(radius, UiTheme.Spec.Radius));
         MouseFilter = MouseFilterEnum.Ignore;
         TextureFilter = TextureFilterEnum.LinearWithMipmaps;
         ClipContents = true;
@@ -60,6 +62,67 @@ public partial class PosterArt : Control
             _title.MouseFilter = MouseFilterEnum.Ignore;
             pad.AddChild(_title);
         }
+    }
+
+    public override void _Ready()
+    {
+        if (_tex == null && _item.PosterUrl is { } url)
+        {
+            LoadRemote(url);
+        }
+    }
+
+    /// <summary>Server artwork: the generated card shows until the picture arrives, then it fades in.</summary>
+    private async void LoadRemote(string url)
+    {
+        var max = (int)Mathf.Max(CustomMinimumSize.X, CustomMinimumSize.Y) * 2;
+        var tex = await RemoteImage.TextureAsync(url, Math.Max(256, max));
+        if (tex == null || !IsInstanceValid(this))
+        {
+            return;
+        }
+        _tex = tex;
+        _title?.GetParent()?.QueueFree();
+        _title = null;
+        if (Anim.Enabled && IsVisibleInTree())
+        {
+            _texAlpha = 0;
+            CreateTween().TweenMethod(Callable.From<float>(a =>
+            {
+                _texAlpha = a;
+                QueueRedraw();
+            }), 0f, 1f, Anim.Slow);
+        }
+        QueueRedraw();
+    }
+
+    private static Shader? _rounded;
+
+    /// <summary>
+    /// Clips everything the art draws (picture, generated card, focus ring) to a rounded
+    /// rectangle with soft edges, so corners stay round with real artwork too.
+    /// </summary>
+    private ShaderMaterial RoundedMaterial(float radius)
+    {
+        _rounded ??= new Shader
+        {
+            Code = """
+                shader_type canvas_item;
+                uniform vec2 size = vec2(100.0);
+                uniform float radius = 10.0;
+                varying vec2 local;
+                void vertex() { local = VERTEX; }
+                void fragment() {
+                    vec2 q = abs(local - size * 0.5) - (size * 0.5 - vec2(radius));
+                    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+                    COLOR.a *= clamp(0.5 - d, 0.0, 1.0);
+                }
+                """,
+        };
+        var m = new ShaderMaterial { Shader = _rounded };
+        m.SetShaderParameter("radius", radius);
+        Resized += () => m.SetShaderParameter("size", Size);
+        return m;
     }
 
     public void SetProgress(double? p)
@@ -129,32 +192,12 @@ public partial class PosterArt : Control
 
     public override void _Draw()
     {
+        (Material as ShaderMaterial)?.SetShaderParameter("size", Size);
         var rect = new Rect2(Vector2.Zero, Size);
         var r = Math.Min(_radius, UiTheme.Spec.Radius);
-        if (_tex != null)
-        {
-            var ts = _tex.GetSize();
-            var frameAspect = Size.X / Size.Y;
-            var texAspect = ts.X / ts.Y;
-            if (Math.Abs(frameAspect / texAspect - 1) > 0.25f && _item.Kind is MediaKind.Album or MediaKind.Track or MediaKind.Artist)
-            {
-                // A square cover in a poster frame: show all of it, centred on the item's colour.
-                var bg = new StyleBoxFlat { BgColor = UiTheme.TileColor(_item.Title).Darkened(0.5f) };
-                bg.SetCornerRadiusAll((int)r);
-                DrawStyleBox(bg, rect);
-                var fit = Mathf.Min(Size.X / ts.X, Size.Y / ts.Y);
-                var dst = ts * fit;
-                DrawTextureRect(_tex, new Rect2((Size - dst) / 2, dst), false);
-            }
-            else
-            {
-                // Cover-fit: fill the box, crop the overflow.
-                var scale = Mathf.Max(Size.X / ts.X, Size.Y / ts.Y);
-                var src = new Vector2(Size.X / scale, Size.Y / scale);
-                DrawTextureRectRegion(_tex, rect, new Rect2((ts - src) / 2, src));
-            }
-        }
-        else
+        var tint = new Color(1, 1, 1, _texAlpha);
+        // The generated card shows until artwork arrives (and under it while it fades in).
+        if (_tex == null || _texAlpha < 1)
         {
             var baseColor = UiTheme.TileColor(_item.Title);
             var top = baseColor.Lightened(0.18f);
@@ -182,6 +225,29 @@ public partial class PosterArt : Control
                 var w = font.GetStringSize(Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs).X;
                 DrawString(font, new Vector2((Size.X - w) / 2, Size.Y / 2 + gs * 0.35f), Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs,
                     new Color(1, 1, 1, 0.5f));
+            }
+        }
+        if (_tex != null)
+        {
+            var ts = _tex.GetSize();
+            var frameAspect = Size.X / Size.Y;
+            var texAspect = ts.X / ts.Y;
+            if (Math.Abs(frameAspect / texAspect - 1) > 0.25f && _item.Kind is MediaKind.Album or MediaKind.Track or MediaKind.Artist)
+            {
+                // A square cover in a poster frame: show all of it, centred on the item's colour.
+                var bg = new StyleBoxFlat { BgColor = UiTheme.TileColor(_item.Title).Darkened(0.5f) with { A = _texAlpha } };
+                bg.SetCornerRadiusAll((int)r);
+                DrawStyleBox(bg, rect);
+                var fit = Mathf.Min(Size.X / ts.X, Size.Y / ts.Y);
+                var dst = ts * fit;
+                DrawTextureRect(_tex, new Rect2((Size - dst) / 2, dst), false, tint);
+            }
+            else
+            {
+                // Cover-fit: fill the box, crop the overflow.
+                var scale = Mathf.Max(Size.X / ts.X, Size.Y / ts.Y);
+                var src = new Vector2(Size.X / scale, Size.Y / scale);
+                DrawTextureRectRegion(_tex, rect, new Rect2((ts - src) / 2, src), tint);
             }
         }
         if (_progress is { } p and > 0)

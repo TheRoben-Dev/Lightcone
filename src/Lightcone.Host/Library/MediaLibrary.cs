@@ -14,7 +14,9 @@ public enum SortKey
 /// </summary>
 public sealed class MediaLibrary
 {
-    private readonly List<IMediaSource> _sources = new();
+    // Copy-on-write: sources are added from background work (a Plex sign-in) while the UI reads.
+    private volatile IReadOnlyList<IMediaSource> _sources = [];
+    private readonly object _gate = new();
 
     public MediaLibrary(ProgressStore progress)
     {
@@ -29,18 +31,40 @@ public sealed class MediaLibrary
 
     public void Add(IMediaSource source)
     {
-        _sources.RemoveAll(s => s.Id == source.Id);
-        _sources.Add(source);
+        lock (_gate)
+        {
+            foreach (var old in _sources.Where(s => s.Id == source.Id))
+            {
+                old.Changed -= OnSourceChanged;
+            }
+            _sources = _sources.Where(s => s.Id != source.Id).Append(source).ToList();
+            source.Changed += OnSourceChanged;
+        }
         Changed?.Invoke();
     }
 
     public void Remove(string sourceId)
     {
-        if (_sources.RemoveAll(s => s.Id == sourceId) > 0)
+        bool removed;
+        lock (_gate)
+        {
+            var gone = _sources.Where(s => s.Id == sourceId).ToList();
+            foreach (var old in gone)
+            {
+                old.Changed -= OnSourceChanged;
+            }
+            removed = gone.Count > 0;
+            _sources = _sources.Where(s => s.Id != sourceId).ToList();
+        }
+        if (removed)
         {
             Changed?.Invoke();
         }
     }
+
+    private void OnSourceChanged() => Changed?.Invoke();
+
+    private IMediaSource? SourceOf(MediaItem item) => _sources.FirstOrDefault(s => s.Id == item.SourceId);
 
     public IEnumerable<MediaItem> All => _sources.SelectMany(s => s.Items);
 
@@ -51,7 +75,7 @@ public sealed class MediaLibrary
         Sort(All.Where(i => i.Kind == kind), sort, descending);
 
     public IReadOnlyList<MediaItem> Children(string parentId) =>
-        All.Where(i => i.ParentId == parentId).OrderBy(i => i.Index ?? int.MaxValue).ThenBy(i => i.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+        All.Where(i => i.ParentId == parentId).OrderBy(i => i.Season ?? 0).ThenBy(i => i.Index ?? int.MaxValue).ThenBy(i => i.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
 
     public static IReadOnlyList<MediaItem> Sort(IEnumerable<MediaItem> items, SortKey sort, bool descending)
     {
@@ -89,9 +113,65 @@ public sealed class MediaLibrary
         return title;
     }
 
-    /// <summary>Resume position: this device's, else the source's (server sync).</summary>
-    public double? PositionOf(MediaItem item) =>
-        Progress.Get(item.Id)?.Position ?? _sources.FirstOrDefault(s => s.Id == item.SourceId)?.PositionOf(item.Id);
+    /// <summary>
+    /// Resume position: the more recent of this device's and the server's (so a show paused on
+    /// the TV resumes there on the Deck), or null when there is nothing to resume.
+    /// </summary>
+    public double? PositionOf(MediaItem item)
+    {
+        var local = Progress.Get(item.Id);
+        var server = SourceOf(item)?.ServerProgress(item.Id);
+        if (local != null && (server == null || local.At >= server.At))
+        {
+            return local.Position;
+        }
+        return server?.Position;
+    }
+
+    /// <summary>Watched here, or on the server (any device).</summary>
+    public bool IsWatched(MediaItem item) => Progress.IsWatched(item.Id) || SourceOf(item)?.ServerWatched(item.Id) == true;
+
+    public bool IsWatched(string id) => Find(id) is { } item ? IsWatched(item) : Progress.IsWatched(id);
+
+    public void SetWatched(MediaItem item, bool watched)
+    {
+        Progress.SetWatched(item.Id, watched);
+        SourceOf(item)?.OnWatched(item, watched);
+    }
+
+    /// <summary>Records playback progress here and tells the item's server.</summary>
+    public void Report(MediaItem item, double position, double? duration, PlaybackState state = PlaybackState.Playing)
+    {
+        Progress.Report(item.Id, position, duration);
+        SourceOf(item)?.OnProgress(item, position, duration, state);
+    }
+
+    public Task PrepareAsync(MediaItem item, CancellationToken ct = default) => SourceOf(item)?.PrepareAsync(item, ct) ?? Task.CompletedTask;
+
+    /// <summary>Items with a resume position here or on a server, most recent first.</summary>
+    public IReadOnlyList<MediaItem> InProgress()
+    {
+        var at = new Dictionary<string, DateTime>();
+        foreach (var id in Progress.InProgress())
+        {
+            if (Progress.Get(id) is { } p)
+            {
+                at[id] = p.At;
+            }
+        }
+        foreach (var s in _sources)
+        {
+            foreach (var i in s.Items)
+            {
+                if (s.ServerProgress(i.Id) is { } p && (!at.TryGetValue(i.Id, out var t) || p.At > t))
+                {
+                    at[i.Id] = p.At;
+                }
+            }
+        }
+        return at.OrderByDescending(kv => kv.Value).Select(kv => Find(kv.Key)).OfType<MediaItem>()
+            .Where(i => i.Playable && PositionOf(i) != null && !IsWatched(i)).ToList();
+    }
 
     public IReadOnlyList<Marker> MarkersOf(MediaItem item) =>
         _sources.FirstOrDefault(s => s.Id == item.SourceId)?.MarkersOf(item.Id) ?? [];
@@ -105,7 +185,7 @@ public sealed class MediaLibrary
             return [];
         }
         return All.Where(i => i.Kind is not MediaKind.Episode || i.ParentId == null)
-            .Select(i => (Item: i, Text: Fold($"{i.Title} {i.Subtitle} {string.Join(' ', i.Genres)} {i.Year}")))
+            .Select(i => (Item: i, Text: Fold($"{i.Title} {i.Subtitle} {i.ParentTitle} {string.Join(' ', i.Genres)} {i.Year}")))
             .Where(x => words.All(w => x.Text.Contains(w, StringComparison.Ordinal)))
             .OrderBy(x => Fold(x.Item.Title).StartsWith(words[0], StringComparison.Ordinal) ? 0 : 1)
             .ThenBy(x => x.Item.Title, StringComparer.CurrentCultureIgnoreCase)
@@ -130,7 +210,7 @@ public sealed class MediaLibrary
     public IReadOnlyList<HomeRow> HomeRows(int perRow = 20)
     {
         var rows = new List<HomeRow>();
-        var resume = Progress.InProgress().Select(Find).OfType<MediaItem>().Where(i => i.Playable).Take(perRow).ToList();
+        var resume = InProgress().Take(perRow).ToList();
         if (resume.Count > 0)
         {
             rows.Add(new HomeRow("continue", "Continue watching", resume, Wide: true));

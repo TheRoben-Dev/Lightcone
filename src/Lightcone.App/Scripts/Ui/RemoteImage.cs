@@ -12,10 +12,10 @@ namespace Lightcone.App.Ui;
 /// </summary>
 public partial class RemoteImage : Control
 {
-    private static readonly SemaphoreSlim Slots = new(4);
+    private static readonly SemaphoreSlim Slots = new(6);
     private static readonly System.Net.Http.HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private static readonly Dictionary<string, ImageTexture> Memory = new();
-    private const int MemoryLimit = 160;
+    private const int MemoryLimit = 400;
 
     private readonly string? _url;
     private readonly string _initials;
@@ -68,38 +68,57 @@ public partial class RemoteImage : Control
             Show(cached, fade: false);
             return;
         }
+        var tex = await TextureAsync(url, Mathf.Max(256, (int)(Mathf.Max(CustomMinimumSize.X, CustomMinimumSize.Y) * 2)));
+        if (tex != null && IsInstanceValid(this) && IsInsideTree())
+        {
+            Show(tex, fade: true);
+        }
+    }
+
+    /// <summary>A texture already in memory, or null.</summary>
+    public static ImageTexture? Cached(string url) => Memory.GetValueOrDefault(url);
+
+    /// <summary>
+    /// Downloads (or reads from the disk cache) and decodes a picture, scaled down to at most
+    /// <paramref name="max"/> pixels on its long side. Null when it can't be had; never throws.
+    /// </summary>
+    public static async Task<ImageTexture?> TextureAsync(string url, int max)
+    {
+        if (Memory.TryGetValue(url, out var cached))
+        {
+            return cached;
+        }
         byte[]? bytes;
         try
         {
             bytes = await Task.Run(() => Fetch(url));
         }
-        catch (Exception e) when (e is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException)
+        catch (Exception e) when (e is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException or InvalidOperationException)
         {
-            return;  // the placeholder stays
+            return null;  // the placeholder stays
         }
-        if (bytes == null || !IsInstanceValid(this) || !IsInsideTree())
+        if (bytes == null)
         {
-            return;
+            return null;
         }
         var img = Decode(bytes);
         if (img == null)
         {
-            return;
+            return null;
         }
-        // Keep memory small: icons are shown at ~64-200 px.
-        var max = Mathf.Max(256, (int)(Mathf.Max(CustomMinimumSize.X, CustomMinimumSize.Y) * 2));
         if (img.GetWidth() > max || img.GetHeight() > max)
         {
             var scale = (float)max / Mathf.Max(img.GetWidth(), img.GetHeight());
             img.Resize(Mathf.Max(1, (int)(img.GetWidth() * scale)), Mathf.Max(1, (int)(img.GetHeight() * scale)), Image.Interpolation.Bilinear);
         }
+        img.GenerateMipmaps();
         var tex = ImageTexture.CreateFromImage(img);
         if (Memory.Count > MemoryLimit)
         {
             Memory.Clear();
         }
         Memory[url] = tex;
-        Show(tex, fade: true);
+        return tex;
     }
 
     private void Show(Texture2D tex, bool fade)

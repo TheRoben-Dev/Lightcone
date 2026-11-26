@@ -21,13 +21,17 @@ public partial class HintBar : HBoxContainer
 
     private Tween? _helpTween;
 
+    private string? _helpTarget;
+
     /// <summary>Help text crossfades: out quickly, swap, in.</summary>
     public void SetHelp(string text)
     {
-        if (_help.Text == text)
+        // Compare with where the text is heading, not what shows now: a fade may still be under way.
+        if ((_helpTarget ?? _help.Text) == text)
         {
             return;
         }
+        _helpTarget = text;
         _helpTween?.Kill();
         if (!Anim.Enabled || !IsInsideTree())
         {

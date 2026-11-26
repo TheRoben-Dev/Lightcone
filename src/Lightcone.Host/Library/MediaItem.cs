@@ -43,11 +43,20 @@ public sealed record MediaItem
     /// <summary>Local poster / cover image (cached), or null for generated art.</summary>
     public string? Poster { get; init; }
 
+    /// <summary>Poster / cover image to download (server artwork), used when <see cref="Poster"/> is null.</summary>
+    public string? PosterUrl { get; init; }
+
+    /// <summary>Show for an episode, artist for a track or album (for display and search).</summary>
+    public string? ParentTitle { get; init; }
+
     /// <summary>Parent (show for an episode, album for a track).</summary>
     public string? ParentId { get; init; }
 
     /// <summary>Order within the parent (episode or track number).</summary>
     public int? Index { get; init; }
+
+    /// <summary>Season number of an episode.</summary>
+    public int? Season { get; init; }
 
     public bool Playable => PlayUrl != null;
 

@@ -178,7 +178,7 @@ public partial class PlayerService : Node
         {
             return;
         }
-        SaveProgress();
+        SaveProgress(PlaybackState.Stopped);
         var start = fromStart ? 0 : Host.Library.PositionOf(item) ?? 0;
         Current = item;
         Position = start;
@@ -198,6 +198,11 @@ public partial class PlayerService : Node
             Main.Instance.Error($"Couldn't open {item.Title}: {e.Message}");
             Current = null;
         }
+        if (Current != null)
+        {
+            // Intro / credits markers from the server, ready by the time the intro plays.
+            _ = Host.Library.PrepareAsync(item);
+        }
         Changed?.Invoke();
     }
 
@@ -206,10 +211,7 @@ public partial class PlayerService : Node
         if (_mpv != null && Current != null)
         {
             _mpv.Paused = !_mpv.Paused;
-            if (_mpv.Paused)
-            {
-                SaveProgress();
-            }
+            SaveProgress(_mpv.Paused ? PlaybackState.Paused : PlaybackState.Playing);
         }
     }
 
@@ -292,7 +294,7 @@ public partial class PlayerService : Node
         {
             return;
         }
-        SaveProgress();
+        SaveProgress(PlaybackState.Stopped);
         AppLog.Info($"stop {Current.Id} at {Position:0}s");
         Current = null;
         HasVideo = false;
@@ -312,11 +314,11 @@ public partial class PlayerService : Node
         }
     }
 
-    private void SaveProgress()
+    private void SaveProgress(PlaybackState state = PlaybackState.Playing)
     {
         if (Current is { } item && Position > 0)
         {
-            Host.Library.Progress.Report(item.Id, Position, Duration);
+            Host.Library.Report(item, Position, Duration, state);
         }
     }
 
@@ -355,7 +357,7 @@ public partial class PlayerService : Node
                     break;
                 case MpvEventId.EndFile when e.EndReason == 0 && Current is { } done && !_ending:
                     _ending = true;
-                    Host.Library.Progress.Report(done.Id, Duration ?? Position, Duration);
+                    Host.Library.Report(done, Duration ?? Position, Duration, PlaybackState.Stopped);
                     Finished?.Invoke(done);
                     break;
             }
@@ -367,7 +369,7 @@ public partial class PlayerService : Node
             {
                 // keep-open=yes: the end shows as eof-reached, not end-file.
                 _ending = true;
-                Host.Library.Progress.Report(item.Id, Duration ?? Position, Duration);
+                Host.Library.Report(item, Duration ?? Position, Duration, PlaybackState.Stopped);
                 Finished?.Invoke(item);
             }
             ActiveMarker = Host.Library.MarkersOf(Current).FirstOrDefault(m => Position >= m.Start && Position < m.End - 1);
@@ -464,7 +466,7 @@ public partial class PlayerService : Node
 
     public override void _ExitTree()
     {
-        SaveProgress();
+        SaveProgress(PlaybackState.Stopped);
         // The render context must go before the player, on the render thread.
         var rc = _render;
         _render = null;

@@ -88,6 +88,9 @@ public sealed class AppHost
     public AppUpdater Updater { get; }
     public MediaLibrary Library { get; }
 
+    /// <summary>The Plex account and its servers (sources in <see cref="Library"/>).</summary>
+    public Plex.PlexService Plex { get; }
+
     /// <summary>Raised after settings are saved (the app re-applies what changed).</summary>
     public event Action<AppSettings>? SettingsChanged;
 
@@ -104,6 +107,7 @@ public sealed class AppHost
         }
         Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile));
         ApplyDemo(Settings.DemoLibrary);
+        Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
     }
 
     /// <summary>Adds or removes the sample library.</summary>
