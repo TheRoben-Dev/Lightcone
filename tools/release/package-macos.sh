@@ -17,12 +17,14 @@ cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt" 2>/dev/null || true
 printf 'Lightcone %s (macOS universal)\n\nMove Lightcone.app to Applications. Playback needs libmpv: brew install mpv\nhttps://github.com/TheRoben-Dev/Lightcone\n' "$VERSION" > "$APP/Contents/Resources/README.txt"
 # Headless CLI, one self-contained binary per architecture behind a launcher.
 install -m 755 "$CLI/lightcone-arm64" "$CLI/lightcone-x64" "$APP/Contents/MacOS/"
-cat > "$APP/Contents/MacOS/lightcone" <<'SH'
+# Named lightcone-cli: "lightcone" would overwrite the app binary on a case-insensitive file system.
+cat > "$APP/Contents/MacOS/lightcone-cli" <<'SH'
 #!/bin/sh
 here=$(cd "$(dirname "$0")" && pwd)
 case "$(uname -m)" in arm64) exec "$here/lightcone-arm64" "$@" ;; *) exec "$here/lightcone-x64" "$@" ;; esac
 SH
-chmod 755 "$APP/Contents/MacOS/lightcone"
+chmod 755 "$APP/Contents/MacOS/lightcone-cli"
+test "$(head -c 2 "$APP/Contents/MacOS/Lightcone")" != "#!"   # the app binary is still the app
 # Ad-hoc signature (no Apple Developer ID yet): Gatekeeper asks once, see README.
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"

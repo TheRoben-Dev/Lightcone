@@ -19,7 +19,8 @@ public sealed record UpdatePackage(string Asset, string Folder, string Binary, s
 {
     public static readonly UpdatePackage Linux = new("Lightcone-linux-x86_64.tar.gz", "Lightcone", "Lightcone.x86_64", "lightcone", false);
     public static readonly UpdatePackage Windows = new("Lightcone-windows-x86_64.zip", "Lightcone", "Lightcone.exe", "lightcone-cli.exe", true);
-    public static readonly UpdatePackage MacOS = new("Lightcone-macos-universal.zip", "Lightcone.app", "Contents/MacOS/Lightcone", "Contents/MacOS/lightcone", true);
+    public static readonly UpdatePackage MacOS = new("Lightcone-macos-universal.zip", "Lightcone.app", "Contents/MacOS/Lightcone", "Contents/MacOS/lightcone-cli", true);
+    // (The CLI can't be "lightcone" there: macOS file systems are case-insensitive, so it would replace the app.)
 
     /// <summary>The package for the OS Lightcone runs on.</summary>
     public static UpdatePackage Here => Platform.IsWindows ? Windows : Platform.IsMacOS ? MacOS : Linux;

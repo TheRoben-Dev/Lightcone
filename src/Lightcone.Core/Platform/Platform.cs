@@ -28,7 +28,7 @@ public static class Platform
     public static string AppBinary => IsWindows ? "Lightcone.exe" : IsMacOS ? "Lightcone" : "Lightcone.x86_64";
 
     /// <summary>The command line helper (`lightcone`) next to it; lightcone-cli.exe on Windows, where lightcone.exe would clash with Lightcone.exe.</summary>
-    public static string CliBinary => IsWindows ? "lightcone-cli.exe" : "lightcone";
+    public static string CliBinary => IsWindows ? "lightcone-cli.exe" : IsMacOS ? "lightcone-cli" : "lightcone";
 
     /// <summary>True while a process with this id is running.</summary>
     public static bool ProcessAlive(int pid)

@@ -254,8 +254,8 @@ jobs:
           ditto -x -k dist-macos/Lightcone-macos-universal.zip "$RUNNER_TEMP/app"
           app="$RUNNER_TEMP/app/Lightcone.app"
           lipo -archs "$app/Contents/MacOS/Lightcone"
-          "$app/Contents/MacOS/lightcone" version
-          "$app/Contents/MacOS/lightcone" probe
+          "$app/Contents/MacOS/lightcone-cli" version
+          "$app/Contents/MacOS/lightcone-cli" probe
           "$app/Contents/MacOS/Lightcone" --headless --quit-after 600 2>&1 | tee app-out.log
           cat ~/Library/Application\ Support/Lightcone/logs/app.log 2>/dev/null || true
           ! grep -E "Unhandled exception|System\.[A-Za-z.]*Exception" app-out.log

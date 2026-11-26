@@ -18,15 +18,18 @@ public sealed class MpvFactAttribute : FactAttribute
 
 public class PlaybackTests
 {
+    // Simulated Linux / macOS paths are built with the host's separator; compare them with '/'.
+    private static string N(string path) => path.Replace('\\', '/');
+
     [Fact]
     public void LooksInTheBundleBeforeTheSystem()
     {
-        var linux = MpvLibrary.Candidates("/opt/Lightcone", OSPlatform.Linux, null).ToList();
+        var linux = MpvLibrary.Candidates("/opt/Lightcone", OSPlatform.Linux, null).Select(N).ToList();
         Assert.Equal("/opt/Lightcone/lib/libmpv.so.2", linux[0]);
         Assert.Contains("libmpv.so.2", linux);
         Assert.True(linux.IndexOf("/opt/Lightcone/lib/libmpv.so.2") < linux.IndexOf("libmpv.so.2"));
 
-        var mac = MpvLibrary.Candidates("/Applications/Lightcone.app/Contents/MacOS", OSPlatform.OSX, null).ToList();
+        var mac = MpvLibrary.Candidates("/Applications/Lightcone.app/Contents/MacOS", OSPlatform.OSX, null).Select(N).ToList();
         Assert.Equal("/Applications/Lightcone.app/Contents/Frameworks/libmpv.2.dylib", mac[0]);
         Assert.Contains("/opt/homebrew/lib/libmpv.2.dylib", mac);
 

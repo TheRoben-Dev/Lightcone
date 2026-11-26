@@ -107,13 +107,13 @@ public class UpdaterTests : IDisposable
         Directory.CreateDirectory(Path.Combine(install, "Contents", "MacOS"));
         Directory.CreateDirectory(Path.Combine(install, "Contents", "Resources"));
         File.WriteAllText(Path.Combine(install, "Contents", "MacOS", "Lightcone"), "old");
-        File.WriteAllText(Path.Combine(install, "Contents", "MacOS", "lightcone"), "old");
+        File.WriteAllText(Path.Combine(install, "Contents", "MacOS", "lightcone-cli"), "old");
         File.WriteAllText(Path.Combine(install, "Contents", "Resources", "README.txt"), "Lightcone 0.1.1 (macOS universal)\n");
 
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
-            foreach (var (name, text) in new[] { ("Lightcone.app/Contents/MacOS/Lightcone", "new"), ("Lightcone.app/Contents/MacOS/lightcone", "new"), ("Lightcone.app/Contents/Resources/README.txt", "Lightcone 0.2.0 (macOS universal)\n") })
+            foreach (var (name, text) in new[] { ("Lightcone.app/Contents/MacOS/Lightcone", "new"), ("Lightcone.app/Contents/MacOS/lightcone-cli", "new"), ("Lightcone.app/Contents/Resources/README.txt", "Lightcone 0.2.0 (macOS universal)\n") })
             {
                 using var w = new StreamWriter(zip.CreateEntry(name).Open());
                 w.Write(text);

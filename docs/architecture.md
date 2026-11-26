@@ -6,7 +6,7 @@ src/
   Lightcone.Playback  libmpv binding (P/Invoke client + render API), track parsing, hwdec and resume policies. No Godot.
   Lightcone.Host      everything the app does that isn't UI: settings, media library + sources, watch progress,
                       self-updater, Steam setup, logging. Shared by the app and the CLI.
-  Lightcone.Cli       `lightcone` / `lightcone-cli.exe`: version, settings, probe (libmpv), steam-add.
+  Lightcone.Cli       `lightcone` (Linux) / `lightcone-cli.exe` / `Lightcone.app/Contents/MacOS/lightcone-cli`: version, settings, probe (libmpv), steam-add.
   Lightcone.App       Godot 4.7.2 .NET project. All UI is built in code (Scripts/), gl_compatibility renderer.
 tests/Lightcone.Core.Tests   xUnit tests for Core, Host and Playback.
 tools/smoke                  UI smoke test (Xvfb, scripted pad/keyboard/mouse/touch, screenshot per step).
