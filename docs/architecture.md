@@ -60,7 +60,7 @@ be replaced (`libmpv-NOTICE.txt` ships next to it).
 |---|---|---|---|
 | Linux | Steam Runtime sniper SDK (glibc 2.31) | `lib/libmpv.so.2` | glibc, EGL, libva + libva-drm, PulseAudio, ALSA, fontconfig, zlib |
 | Windows | Ubuntu, mingw-w64 cross | `libmpv-2.dll` next to `Lightcone.exe` | system DLLs only (D3D11VA / DXVA2 decoding, WASAPI) |
-| macOS | Apple silicon, both architectures, `lipo` | `Contents/Frameworks/libmpv.2.dylib` | system frameworks only (VideoToolbox, CoreAudio, SecureTransport) |
+| macOS | Apple silicon, both architectures, `lipo` | `Contents/Frameworks/libmpv.2.dylib` | system frameworks only (VideoToolbox decoding with copy-back, CoreAudio, SecureTransport) |
 
 CI builds each one in its own job (`libmpv-linux`, `libmpv-windows`, `libmpv-macos`), caches it until
 anything in `tools/libmpv/` changes, and checks its dependencies. The app job then runs the UI smoke

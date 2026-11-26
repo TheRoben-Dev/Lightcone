@@ -38,5 +38,5 @@ godot fps    avg 60.0, min 58
 ```
 
 Good on a Deck: `hwdec vaapi`, render `OpenGL (EGL)`, drops near zero, Godot near 60 fps (90 on an
-OLED in Game Mode with a 90 Hz limit). Good on a Mac: `hwdec videotoolbox`. If hwdec says `no`,
+OLED in Game Mode with a 90 Hz limit). Good on a Mac: `hwdec videotoolbox-copy`. If hwdec says `no`,
 send the report and `app.log` from the same folder.

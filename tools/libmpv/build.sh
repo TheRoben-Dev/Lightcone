@@ -245,7 +245,10 @@ case "$OS" in
     LINK="-static-libgcc -Wl,-Bstatic -lstdc++ -lwinpthread -Wl,-Bdynamic -lws2_32 -lbcrypt"
     ;;
   macos)
-    MPV+=(-Dcocoa=enabled -Dgl-cocoa=enabled -Dvideotoolbox-gl=enabled -Dcoreaudio=enabled -Diconv=enabled)
+    # No cocoa / gl-cocoa: in mpv 0.39 they need the Swift build, and the render API draws into
+    # Godot's context without them. VideoToolbox still decodes on the GPU, copied back
+    # (videotoolbox-copy, which "auto-copy-safe" picks).
+    MPV+=(-Dcoreaudio=enabled -Diconv=enabled)
     # libc++ for libplacebo's C++; the arch flags again, since these replace the cross file's link args.
     LINK="-lc++ $flags"
     # Only .a files in our prefix anyway; prefer_static would hide the system's libiconv dylib.
