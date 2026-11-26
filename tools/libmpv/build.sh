@@ -183,10 +183,12 @@ mkdir -p "$BUILD/libass" && (cd "$BUILD/libass" && "$SRC/libass/configure" "${AS
 fin libass; fi
 
 # ---- TLS for https streams (Jellyfin / Plex over https) ----
-if step mbedtls; then
+# (macOS uses SecureTransport instead.) Mbed TLS builds with -Werror by default; a newer compiler
+# warning must not break a pinned release.
+if [ "$OS" != macos ] && step mbedtls; then
 cmake -S "$SRC/mbedtls" -B "$BUILD/mbedtls" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
   -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF \
-  -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DUSE_STATIC_MBEDTLS_LIBRARY=ON ${CM_CROSS[@]+"${CM_CROSS[@]}"}
+  -DMBEDTLS_FATAL_WARNINGS=OFF -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DUSE_STATIC_MBEDTLS_LIBRARY=ON ${CM_CROSS[@]+"${CM_CROSS[@]}"}
 ninja -C "$BUILD/mbedtls" -j "$JOBS" install
 fin mbedtls; fi
 
