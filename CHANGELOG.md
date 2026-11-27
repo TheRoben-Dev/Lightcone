@@ -3,6 +3,17 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.8.0
+
+- Cast & crew on movie, show and episode pages (from Plex or Jellyfin). Pick someone to see everything else in your library they're in.
+- Trailers & extras: a Trailer button on movie and show pages, plus a row of the trailers, behind-the-scenes clips, deleted scenes and featurettes your server has.
+- Night mode evens out the volume, so quiet dialogue comes up and explosions come down. Clear voices lifts dialogue over music and effects, and with surround tracks it brings the centre channel forward. Both are in the player's options and in Settings → Playback, and they stay on until you turn them off.
+- Chapters: ticks on the seek bar, the current chapter by the clock, and a chapter list in the player's options. With the controls showing, D-pad up / down (or LB / RB) jump between chapters. On the desktop, use the ⏮ / ⏭ buttons or Page Up / Page Down.
+- Seek previews: while you skip with the triggers or hover over the seek bar, a thumbnail shows where you'll land. This needs Plex preview thumbnails or Jellyfin trickplay images; with neither, you still see the time and chapter.
+- Smart resume: resuming backs up 5 seconds so you hear the last line again. After a day away it backs up 10 seconds, after three days 20, and after a week 30. Settings → Playback.
+- Spoiler-free mode (Settings → Library, off by default): episodes you haven't started show no thumbnail and no summary.
+- On the desktop, F switches full screen in the player as its button says (it used to open the options).
+
 ## 0.7.0
 
 - Up next: in an episode's end credits (or 20 seconds before the end), a card shows the next episode and counts down. A plays it now, B lets the credits run. The countdown waits while you're paused, and Settings → Playback sets its length or turns it off.

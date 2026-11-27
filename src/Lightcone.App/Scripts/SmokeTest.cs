@@ -88,10 +88,33 @@ public partial class SmokeTest : Node
             Tap(JoyButton.DpadDown, 3);
             Tap(JoyButton.DpadRight);
         }, wait: 1.0, expect: "Pauses playback");
+        // Night mode and Clear voices: audio filters, kept in Settings.
+        Step("player-options-night", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Evens out the volume");
+        Step("player-options-voices", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Lifts dialogue");
         Step("player-tracks-back", () => Tap(JoyButton.B), wait: 1.0);
         // B stops video and goes back (position saving and Resume are covered by the unit tests:
         // the sample streams play in real time, and resume starts after 30 s).
         Step("player-back", () => Tap(JoyButton.B), wait: 1.2, expect: "Play", tab: "Movies");
+        // Cast & crew below the actions; a person opens their other titles in the library.
+        Step("movie-cast", () => Tap(JoyButton.DpadDown), wait: 0.8, tab: "Movies");
+        Step("movie-person", () => Tap(JoyButton.A), wait: 1.2, tab: "Movies");
+        Step("movie-person-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        Step("movie-extras", () => Tap(JoyButton.DpadDown), wait: 0.8, expect: "Official trailer", tab: "Movies");
+        Step("movie-trailer", () =>
+        {
+            FindFocusable(GetTree().Root, "A Field of Lanterns: trailer")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 2.0, tab: "Movies");
+        Step("movie-trailer-back", () => Tap(JoyButton.B), wait: 1.2, expect: "Trailer", tab: "Movies");
+        Step("movie-play-focus", () => FindFocusable(GetTree().Root, "A Field of Lanterns: play")?.GrabFocus(), wait: 0.5, expect: "Play", tab: "Movies");
         Step("detail-back", () => Tap(JoyButton.B), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
         // X in Movies: collections (yours, the source's, automatic ones).
         Step("movies-collections", () => Tap(JoyButton.X), wait: 1.2, expect: "Faves", tab: "Movies");
@@ -137,6 +160,43 @@ public partial class SmokeTest : Node
         Step("player-still-watching", () => (Main.Instance.Top as PlayerScreen)?.ForceUpNext(true), wait: 1.2, tab: "Shows");
         Step("player-still-stop", () => Tap(JoyButton.B), wait: 1.5, tab: "Shows");
         Step("show-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Shows");
+        // Spoiler-free: no thumbnails or summaries for episodes not watched yet.
+        Step("show-spoilers", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { HideSpoilers = true });
+            FindFocusable(GetTree().Root, "Deep Field")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, tab: "Shows");
+        Step("show-spoilers-episodes", () => Tap(JoyButton.DpadDown, 3), wait: 1.0, tab: "Shows");
+        Step("show-cast", () => Tap(JoyButton.DpadDown, 14), wait: 1.0, tab: "Shows");
+        Step("show-spoilers-back", () =>
+        {
+            Tap(JoyButton.B);
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { HideSpoilers = false });
+        }, wait: 1.0, tab: "Shows");
+        // Chapters (a generated file with chapters, when the script could make one): down / up step, the options list them.
+        if (System.Environment.GetEnvironmentVariable("SMOKE_CHAPTERS") is { Length: > 0 } chapters && File.Exists(chapters))
+        {
+            Step("chapters-play", () =>
+            {
+                PlayerService.Instance.Play(new Lightcone.Host.Library.MediaItem
+                {
+                    Id = "file:" + chapters, Title = "Chapters", Kind = Lightcone.Host.Library.MediaKind.Movie, SourceId = "file", SourceName = "File", PlayUrl = chapters,
+                });
+                Main.Instance.ShowPlayer();
+            }, wait: 2.5);
+            Step("chapters-next", () => Tap(JoyButton.DpadDown), wait: 1.5);
+            Step("chapters-options", () => Tap(JoyButton.Start), wait: 1.0);
+            Step("chapters-list", () => Tap(JoyButton.DpadDown, 7), wait: 1.0, expect: "Chapter: ");
+            Step("chapters-pick", () =>
+            {
+                Tap(JoyButton.DpadDown, 2);
+                Tap(JoyButton.A);
+            }, wait: 1.5);
+            Step("chapters-stop", () => Tap(JoyButton.B), wait: 1.2, tab: "Shows");
+        }
         // Music keeps playing in the background with a now-playing chip in the header.
         Step("music", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Music");
         Step("album", () => Tap(JoyButton.A), wait: 1.2, tab: "Music");
@@ -274,6 +334,7 @@ public partial class SmokeTest : Node
             Key(Godot.Key.Enter);
         }, wait: 1.2, tab: "Movies");
         Step("desktop-play", () => Key(Godot.Key.Enter), wait: 2.0, tab: "Movies");
+        Step("desktop-seek-hover", () => HoverOver(FindType<SeekBar>(GetTree().Root), 0.4f), wait: 0.8, tab: "Movies");
         Step("desktop-player-mini", () => Click(FindAny(GetTree().Root, "Keep playing in the mini player")), wait: 1.5, tab: "Movies");
         Step("desktop-music-mini", () => Key(Godot.Key.Key4, ctrl: true), wait: 1.2, tab: "Music");
         Step("desktop-search", () =>
@@ -397,6 +458,35 @@ public partial class SmokeTest : Node
             return;
         }
         TouchTap(c);
+    }
+
+    /// <summary>The mouse over a spot of a control (<paramref name="x"/>: 0–1 across it).</summary>
+    private static void HoverOver(Control? c, float x)
+    {
+        if (c == null)
+        {
+            throw new InvalidOperationException("nothing to hover");
+        }
+        var r = c.GetGlobalRect();
+        var at = new Vector2(r.Position.X + r.Size.X * x, r.Position.Y + r.Size.Y / 2);
+        c.GetViewport().PushInput(new InputEventMouseMotion { Position = at, GlobalPosition = at }, true);
+        GD.Print($"smoke: hover at {at}, bar {(c is SeekBar bar ? bar.Hover : -2)}");
+    }
+
+    private static T? FindType<T>(Node root) where T : Node
+    {
+        foreach (var c in root.GetChildren())
+        {
+            if (c is T t)
+            {
+                return t;
+            }
+            if (FindType<T>(c) is { } found)
+            {
+                return found;
+            }
+        }
+        return null;
     }
 
     /// <summary>Any visible control by tooltip, focusable or not (the player's buttons take no focus).</summary>

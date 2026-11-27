@@ -455,6 +455,24 @@ public sealed class MediaLibrary
         return result.OrderByDescending(r => r.At).ThenByDescending(r => r.Added).Select(r => r.Next).ToList();
     }
 
+    /// <summary>Cast, crew and extras of a movie or show (from its server), or null.</summary>
+    public async Task<ItemDetails?> DetailsAsync(MediaItem item, CancellationToken ct = default) =>
+        SourceOf(item) is { } source ? await source.DetailsAsync(item, ct) : null;
+
+    /// <summary>Movies and shows in the library a person is in, newest first.</summary>
+    public async Task<IReadOnlyList<MediaItem>> TitlesWithAsync(Person person, CancellationToken ct = default)
+    {
+        if (_sources.FirstOrDefault(s => s.Id == person.SourceId) is not { } source)
+        {
+            return [];
+        }
+        var ids = (await source.TitlesWithAsync(person, ct)).ToHashSet();
+        return All.Where(i => ids.Contains(i.Id) && Visible(i)).DistinctBy(i => i.Id).OrderByDescending(i => i.Year ?? 0).ThenBy(i => SortTitle(i.Title), StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>Seek bar thumbnails for an item, when its server has them (after <see cref="PrepareAsync"/>).</summary>
+    public SeekPreview? PreviewOf(MediaItem item) => SourceOf(item)?.PreviewOf(item.Id);
+
     public IReadOnlyList<Marker> MarkersOf(MediaItem item) =>
         _sources.FirstOrDefault(s => s.Id == item.SourceId)?.MarkersOf(item.Id) ?? [];
 

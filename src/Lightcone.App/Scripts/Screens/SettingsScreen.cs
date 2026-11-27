@@ -13,8 +13,8 @@ public partial class SettingsScreen : TwoPaneScreen
 {
     private static readonly (string Name, string Summary)[] CategoryList =
     [
-        ("Playback", "Hardware decoding, languages, subtitles and seeking."),
-        ("Library", "Music, collections and the watchlist."),
+        ("Playback", "Decoding, languages, subtitles, seeking, sound and resume."),
+        ("Library", "Music, collections, spoilers and your stats."),
         ("Appearance", "Theme, accent colour, CRT effect and animations."),
         ("Sound & feel", "Menu sounds and controller rumble."),
         ("Layout", "Controller or desktop layout, and keyboard shortcuts."),
@@ -64,6 +64,9 @@ public partial class SettingsScreen : TwoPaneScreen
             "Groups movies and shows by genre and decade, next to your own and your servers' collections.",
             "Movies and Shows list collections like \"Sci-Fi movies\" and \"1990s movies\".",
             "Only collections you made and your servers' collections."));
+        Add(Toggle.Create("Spoiler-free", Host.Settings.HideSpoilers, on => Host.SaveSettings(Host.Settings with { HideSpoilers = on }),
+            "Hides thumbnails and summaries of episodes you haven't watched yet, so a still or a synopsis doesn't give the plot away.",
+            "Unwatched episodes show only their number and title.", "Every episode shows its thumbnail and summary."));
         Add(new ActionButton("Your stats", () => App.Push(new StatsPage()), "Hours watched, streaks, top shows and genres (Home: X)."));
         var lib = Host.Library;
         var watch = lib.Watchlist().Count;
@@ -171,6 +174,16 @@ public partial class SettingsScreen : TwoPaneScreen
         Add(Choice("Recap after a break", [(-1, "Off"), (0, "Every time"), (3, "After 3 days"), (7, "After a week"), (14, "After 2 weeks")], s.RecapAfterDays,
             "Back to a show after a while? Before the next episode, see what happened in the last one, and rewatch its last two minutes if you like.",
             v => Host.Settings with { RecapAfterDays = v }));
+
+        Add(Toggle.Create("Smart resume", s.SmartResume, on => Host.SaveSettings(Host.Settings with { SmartResume = on }),
+            "Picking up where you left off backs up a little so you hear the last line again: 5 seconds, more after a long break.",
+            "Rewinds 5 s, 10 s after a day away, 20 s after three days, 30 s after a week.", "Resumes at the exact second you stopped."));
+        Add(Toggle.Create("Night mode", s.NightMode, on => PlayerService.Instance.SetNightMode(on),
+            "Evens out the volume: quiet dialogue comes up, explosions come down. For late nights and thin walls.",
+            "Loud and quiet parts are brought closer together.", "The soundtrack plays as mixed."));
+        Add(Toggle.Create("Clear voices", s.ClearVoices, on => PlayerService.Instance.SetClearVoices(on),
+            "Lifts dialogue over music and effects. With surround sound it pulls the centre (voice) channel forward.",
+            "Dialogue is boosted.", "The soundtrack plays as mixed."));
 
         Add(new ActionButton("Play a file or URL…", () => App.Push(new TextEntryPage("File or URL", "", PlayPath,
             "A path on this computer (SD card and network shares too) or a stream URL.")),

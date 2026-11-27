@@ -3,6 +3,7 @@ using Godot;
 using Lightcone.App.Playback;
 using Lightcone.App.Ui;
 using Lightcone.Host.Library;
+using Lightcone.Playback;
 
 namespace Lightcone.App.Screens;
 
@@ -13,6 +14,9 @@ namespace Lightcone.App.Screens;
 /// full screen) and Space / arrows / F. Touch: tap shows the controls, the seek bar drags.
 /// Near an episode's end an Up next card counts down to the next one (A plays it now, B lets the
 /// credits run); after a few episodes in a row with no press it asks "Still watching?" instead.
+/// Chapters: ticks on the seek bar; D-pad up/down (with the controls showing), LB / RB, or
+/// Page Up / Page Down move between them. Seeking or hovering the bar shows a thumbnail of that
+/// moment when the server has them (Plex preview thumbnails, Jellyfin trickplay).
 /// </summary>
 public partial class PlayerScreen : Screen
 {
@@ -36,6 +40,16 @@ public partial class PlayerScreen : Screen
     private double _osdLeft = OsdSeconds;
     private bool _showInfo;
     private MediaItem? _shownItem;
+    private Label? _hints;
+    private PanelContainer _preview = null!;
+    private TextureRect _previewPic = null!;
+    private Label _previewTime = null!;
+    private double _previewAt = -1;
+    private int _previewAsk;
+    private byte[]? _tileBytes;
+    private Image? _tileImage;
+    private Button? _prevChapter;
+    private Button? _nextChapter;
 
     public override bool FullScreen => true;
 
@@ -130,10 +144,11 @@ public partial class PlayerScreen : Screen
         }
         else
         {
-            var hints = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.8f));
-            hints.Text = $"{Pad.Glyph(Pad.Accept)} Pause    {Pad.Glyph(Pad.SeekBack)} / {Pad.Glyph(Pad.SeekForward)} Seek    {Pad.Glyph(Pad.Tertiary)} Options    {Pad.Glyph(Pad.Secondary)} Skip / info    {Pad.Glyph(Pad.Back)} {(Svc.HasVideo ? "Stop" : "Back (keeps playing)")}";
-            bottomBox.AddChild(hints);
+            _hints = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.8f));
+            bottomBox.AddChild(_hints);
         }
+        _preview = BuildPreview();
+        _osd.AddChild(_preview);
         _card = new UpNextCard(Desktop, PlayNextNow, DismissCard);
         _card.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);
         _card.GrowHorizontal = GrowDirection.Begin;
@@ -170,8 +185,10 @@ public partial class PlayerScreen : Screen
         B($"⟲ {Host.Settings.SeekBack}", $"Back {Host.Settings.SeekBack} seconds (Left, hold to go faster)", () => Svc.Step(-1));
         _playButton = B("❚❚", "Play / pause (Space)", Svc.TogglePause);
         B($"{Host.Settings.SeekForward} ⟳", $"Forward {Host.Settings.SeekForward} seconds (Right, hold to go faster)", () => Svc.Step(1));
+        _prevChapter = B("⏮", "Previous chapter (Page Up)", () => StepChapter(-1));
+        _nextChapter = B("⏭", "Next chapter (Page Down)", () => StepChapter(1));
         row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
-        B("Options", "Audio, subtitles, speed, subtitle timing and sleep timer (A)", () => App.Push(new TrackPickerPage()));
+        B("Options", "Audio, subtitles, speed, timing, sleep timer, Night mode, Clear voices and chapters (A)", () => App.Push(new TrackPickerPage()));
         B("Mini player", "Keep playing in the mini player while you browse", App.MinimizePlayer);
         B("Full screen", "Full screen (F)", ToggleFullscreen);
         B("✕", "Stop (Esc)", () =>
@@ -211,6 +228,11 @@ public partial class PlayerScreen : Screen
         if (item != _shownItem && _audioArt != null)
         {
             _shownItem = item;
+            _previewPic.Texture = null;
+            _previewAt = -1;
+            _tileBytes = null;
+            _tileImage = null;
+            _ = Svc.Preview?.FrameAsync(0);  // start fetching thumbnails before the first seek
             foreach (var c in _audioArt.GetChildren())
             {
                 c.QueueFree();
@@ -228,6 +250,15 @@ public partial class PlayerScreen : Screen
             }
         }
         _audioArt!.Visible = !Svc.HasVideo;
+        if (_hints != null)
+        {
+            var chapters = Svc.Chapters.Count > 1 ? "    ↑ / ↓ Chapters" : "";
+            _hints.Text = $"{Pad.Glyph(Pad.Accept)} Pause    {Pad.Glyph(Pad.SeekBack)} / {Pad.Glyph(Pad.SeekForward)} Seek{chapters}    {Pad.Glyph(Pad.Tertiary)} Options    {Pad.Glyph(Pad.Secondary)} Skip / info    {Pad.Glyph(Pad.Back)} {(Svc.HasVideo ? "Stop" : "Back (keeps playing)")}";
+        }
+        if (_prevChapter != null && _nextChapter != null)
+        {
+            _prevChapter.Visible = _nextChapter.Visible = Svc.Chapters.Count > 1;
+        }
         if (item != null)
         {
             var isEpisode = item.Kind is MediaKind.Episode or MediaKind.Track;
@@ -379,6 +410,116 @@ public partial class PlayerScreen : Screen
         _countdown = -1;
     }
 
+    // ---- chapters ----
+
+    private void StepChapter(int dir)
+    {
+        if (Svc.StepChapter(dir))
+        {
+            var c = Chapter.At(Svc.Chapters, Svc.DisplayPosition);
+            if (c != null)
+            {
+                App.Toast($"Chapter {c.Index + 1} of {Svc.Chapters.Count}: {c.Title}");
+            }
+        }
+    }
+
+    // ---- seek preview ----
+
+    private PanelContainer BuildPreview()
+    {
+        var panel = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore, Visible = false, TopLevel = false };
+        var box = UiTheme.Box(new Color(0, 0, 0, 0.8f), 1, 10, new Color(1, 1, 1, 0.3f));
+        box.ContentMarginLeft = box.ContentMarginRight = box.ContentMarginTop = box.ContentMarginBottom = 4;
+        panel.AddThemeStyleboxOverride("panel", box);
+        var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        col.AddThemeConstantOverride("separation", 4);
+        panel.AddChild(col);
+        var w = Desktop ? 256 : 300;
+        _previewPic = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(w, w * 9 / 16f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        col.AddChild(_previewPic);
+        _previewTime = UiTheme.Label("", UiTheme.SmallSize + 1, Colors.White);
+        _previewTime.HorizontalAlignment = HorizontalAlignment.Center;
+        _previewTime.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        _previewTime.CustomMinimumSize = new Vector2(w, 0);
+        col.AddChild(_previewTime);
+        return panel;
+    }
+
+    /// <summary>Thumbnail and time over the bar while seeking (or the mouse hovers the bar).</summary>
+    private void UpdatePreview(double? duration)
+    {
+        var preview = Svc.Preview;
+        var hover = _bar.Hover;
+        var seeking = Math.Abs(Svc.DisplayPosition - Svc.Position) > 1;
+        if (duration is not > 0 || !(hover >= 0 || (seeking && preview != null)))
+        {
+            _preview.Visible = false;
+            return;
+        }
+        var at = hover >= 0 ? hover * duration.Value : Svc.DisplayPosition;
+        var chapter = Chapter.At(Svc.Chapters, at);
+        _previewTime.Text = MediaItem.FormatDuration(at, true) + (chapter != null && Svc.Chapters.Count > 1 ? "  ·  " + chapter.Title : "");
+        _previewPic.Visible = preview != null && _previewPic.Texture != null;
+        if (preview != null && Math.Abs(at - _previewAt) >= 1)
+        {
+            _previewAt = at;
+            LoadPreview(preview, at);
+        }
+        _preview.Visible = true;
+        _preview.ResetSize();
+        var bar = _bar.GetGlobalRect();
+        var size = _preview.Size;
+        var x = bar.Position.X + bar.Size.X * (float)(at / duration.Value) - size.X / 2;
+        _preview.GlobalPosition = new Vector2(Math.Clamp(x, bar.Position.X, bar.End.X - size.X), bar.Position.Y - size.Y - 14);
+    }
+
+    private async void LoadPreview(SeekPreview preview, double at)
+    {
+        var ask = ++_previewAsk;
+        PreviewFrame? frame;
+        try
+        {
+            frame = await preview.FrameAsync(at);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"seek preview: {e.Message}");
+            return;
+        }
+        if (!IsInstanceValid(this) || ask != _previewAsk || frame == null)
+        {
+            return;
+        }
+        if (!ReferenceEquals(frame.Image, _tileBytes))
+        {
+            var img = new Image();
+            if (img.LoadJpgFromBuffer(frame.Image) != Error.Ok)
+            {
+                return;
+            }
+            _tileBytes = frame.Image;
+            _tileImage = img;
+        }
+        var image = _tileImage!;
+        if (frame.Width > 0)
+        {
+            var r = new Rect2I(frame.X, frame.Y, Math.Min(frame.Width, image.GetWidth() - frame.X), Math.Min(frame.Height, image.GetHeight() - frame.Y));
+            if (r.Size.X <= 0 || r.Size.Y <= 0)
+            {
+                return;
+            }
+            image = image.GetRegion(r);
+        }
+        _previewPic.Texture = ImageTexture.CreateFromImage(image);
+    }
+
     /// <summary>Shows the controls for a few seconds.</summary>
     private void Poke() => _osdLeft = OsdSeconds;
 
@@ -403,6 +544,8 @@ public partial class PlayerScreen : Screen
         var clock = d is > 0 ? _bar.Shown * d.Value : pos;  // the clock rides along with the bar's glide
         _time.Text = d is { } dd ? $"{MediaItem.FormatDuration(clock, true)} / {MediaItem.FormatDuration(dd, true)}" : MediaItem.FormatDuration(pos, true);
         _bar.Markers = Svc.Current is { } cur && d is > 0 ? Host.Library.MarkersOf(cur).Select(m => ((float)(m.Start / d.Value), (float)(m.End / d.Value))).ToList() : [];
+        _bar.Chapters = d is > 0 && Svc.Chapters.Count > 1 ? Svc.Chapters.Skip(1).Select(c => (float)(c.Start / d.Value)).ToList() : [];
+        UpdatePreview(d);
         UpdateCard(delta);
         var marker = Svc.ActiveMarker;
         _skip.Visible = marker != null && !(_card.Visible && Svc.NextInsteadOfCredits != null);
@@ -414,6 +557,18 @@ public partial class PlayerScreen : Screen
         if (Svc.SleepText is { } sleep)
         {
             status.Add(sleep);
+        }
+        if (Svc.Chapters.Count > 1 && Chapter.At(Svc.Chapters, pos) is { } chapterNow)
+        {
+            status.Add(chapterNow.Title);
+        }
+        if (Host.Settings.NightMode)
+        {
+            status.Add("Night mode");
+        }
+        if (Host.Settings.ClearVoices)
+        {
+            status.Add("Clear voices");
         }
         _status.Text = status.Count > 0 ? "    " + string.Join("  ·  ", status) : "";
         if (marker != null)
@@ -458,7 +613,19 @@ public partial class PlayerScreen : Screen
         }
         else if (e.IsAction("ui_up") || e.IsAction("ui_down"))
         {
-            // Just show the controls.
+            // The first press shows the controls; with them showing, up / down change chapter.
+            if (_osd.Modulate.A > 0.5f && Svc.Chapters.Count > 1 && !e.IsEcho())
+            {
+                StepChapter(e.IsAction("ui_down") ? 1 : -1);
+            }
+        }
+        else if ((e.IsAction(Pad.TabPrev) || e.IsAction(Pad.TabNext)) && !e.IsEcho())
+        {
+            StepChapter(e.IsAction(Pad.TabNext) ? 1 : -1);
+        }
+        else if (Desktop && e is InputEventKey { Keycode: Key.F, Pressed: true, Echo: false })
+        {
+            ToggleFullscreen();
         }
         else if (e.IsAction(Pad.Menu) || e.IsAction(Pad.Tertiary) || e is InputEventKey { Keycode: Key.A })
         {
@@ -548,6 +715,12 @@ public partial class SeekBar : Control
 
     public IReadOnlyList<(float Start, float End)> Markers { get; set; } = [];
 
+    /// <summary>Where chapters start (after the first), as fractions of the bar.</summary>
+    public IReadOnlyList<float> Chapters { get; set; } = [];
+
+    /// <summary>Where the mouse is over the bar (0–1), or -1.</summary>
+    public float Hover { get; private set; } = -1;
+
     /// <summary>Where the bar is drawn right now (part way through a glide).</summary>
     public float Shown => _shown;
 
@@ -583,6 +756,7 @@ public partial class SeekBar : Control
     {
         MouseFilter = MouseFilterEnum.Stop;
         MouseDefaultCursorShape = CursorShape.PointingHand;
+        MouseExited += () => Hover = -1;
     }
 
     public override void _Process(double delta)
@@ -620,7 +794,13 @@ public partial class SeekBar : Control
         else if (e is InputEventMouseMotion { ButtonMask: MouseButtonMask.Left } mm)
         {
             Jump(Math.Clamp(mm.Position.X / Size.X, 0, 1));
+            Hover = Math.Clamp(mm.Position.X / Size.X, 0, 1);
             AcceptEvent();
+        }
+        else if (e is InputEventMouseMotion hover)
+        {
+            // Touch screens report emulated mouse motion only while dragging (handled above).
+            Hover = Math.Clamp(hover.Position.X / Size.X, 0, 1);
         }
     }
 
@@ -634,6 +814,11 @@ public partial class SeekBar : Control
             DrawRect(new Rect2(Size.X * s, y, Size.X * (e - s), h), new Color(1, 1, 1, 0.45f));
         }
         DrawRect(new Rect2(0, y, Size.X * _shown, h), UiTheme.Accent);
+        foreach (var c in Chapters)
+        {
+            // A small gap in the bar where each chapter starts.
+            DrawRect(new Rect2(Size.X * c - 1.5f, y - 1, 3, h + 2), new Color(0, 0, 0, 0.7f));
+        }
         DrawCircle(new Vector2(Size.X * _shown, Size.Y / 2), 9, UiTheme.Accent);
     }
 }

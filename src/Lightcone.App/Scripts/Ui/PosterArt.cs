@@ -52,7 +52,11 @@ public partial class PosterArt : Control
 
     public PosterArt(MediaItem item, Vector2 size, double? progress = null, float radius = 10, bool showTitle = true)
     {
+        var spoiler = Spoilers.Hidden(item);
+        item = spoiler ? Spoilers.Safe(item) : item;
         _item = item;
+        // People (cast tiles) get their initials; a hidden episode shows its note instead.
+        _glyph = spoiler ? "" : item.Id.StartsWith("person:", StringComparison.Ordinal) ? Initials(item.Title) : Glyph(item.Kind);
         _radius = radius;
         _progress = progress;
         _tex = Load(item.Poster) ?? (item.PosterUrl is { } url ? RemoteImage.Cached(url) : null);
@@ -62,6 +66,16 @@ public partial class PosterArt : Control
         TextureFilter = TextureFilterEnum.LinearWithMipmaps;
         ClipContents = true;
         Resized += QueueRedraw;
+        if (spoiler && size.Y >= 60)
+        {
+            // Spoiler-free mode: no still from an episode not seen yet.
+            var hidden = UiTheme.Label("NOT WATCHED YET", size.Y >= 150 ? UiTheme.SmallSize + 1 : UiTheme.SmallSize - 2, new Color(1, 1, 1, 0.7f));
+            hidden.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+            hidden.HorizontalAlignment = HorizontalAlignment.Center;
+            hidden.VerticalAlignment = VerticalAlignment.Center;
+            hidden.MouseFilter = MouseFilterEnum.Ignore;
+            AddChild(hidden);
+        }
         if (_tex == null && showTitle)
         {
             var pad = new MarginContainer { MouseFilter = MouseFilterEnum.Ignore };
@@ -180,6 +194,11 @@ public partial class PosterArt : Control
     /// <summary>Frees cached textures while .NET is still running (see Main._ExitTree).</summary>
     public static void ReleaseShared() => Cache.Clear();
 
+    private readonly string _glyph;
+
+    private static string Initials(string name) =>
+        string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => char.IsLetter(w[0])).Take(2).Select(w => char.ToUpperInvariant(w[0])));
+
     private static string Glyph(MediaKind kind) => kind switch
     {
         MediaKind.Movie => "▶",
@@ -235,14 +254,14 @@ public partial class PosterArt : Control
             if (_title != null)
             {
                 var gs = Mathf.Clamp((int)(Size.Y * 0.12f), 14, 40);
-                DrawString(font, new Vector2(12, 12 + gs), Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs, new Color(1, 1, 1, 0.55f));
+                DrawString(font, new Vector2(12, 12 + gs), _glyph, HorizontalAlignment.Left, -1, gs, new Color(1, 1, 1, 0.55f));
             }
-            else
+            else if (_glyph.Length > 0)
             {
                 // No title on the card: one larger centred glyph.
                 var gs = Mathf.Clamp((int)(Mathf.Min(Size.X, Size.Y) * 0.28f), 18, 72);
-                var w = font.GetStringSize(Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs).X;
-                DrawString(font, new Vector2((Size.X - w) / 2, Size.Y / 2 + gs * 0.35f), Glyph(_item.Kind), HorizontalAlignment.Left, -1, gs,
+                var w = font.GetStringSize(_glyph, HorizontalAlignment.Left, -1, gs).X;
+                DrawString(font, new Vector2((Size.X - w) / 2, Size.Y / 2 + gs * 0.35f), _glyph, HorizontalAlignment.Left, -1, gs,
                     new Color(1, 1, 1, 0.5f));
             }
         }

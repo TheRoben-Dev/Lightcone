@@ -1,3 +1,4 @@
+using Lightcone.Host;
 using Godot;
 using Lightcone.App.Ui;
 using Lightcone.Host.Library;
@@ -6,7 +7,9 @@ namespace Lightcone.App.Screens;
 
 /// <summary>
 /// An item's page: art, facts, overview and actions. Shows list their episodes, albums their
-/// tracks. Used as is in both modes (Desktop only shrinks it).
+/// tracks. Movies, shows and episodes also get a Trailer button, a Cast &amp; crew row (each person
+/// opens their other titles in the library) and Trailers &amp; extras, loaded from the server after
+/// the page opens. Used as is in both modes (Desktop only shrinks it).
 /// </summary>
 public partial class DetailPage : Screen
 {
@@ -19,6 +22,12 @@ public partial class DetailPage : Screen
     private MediaRow? _strip;
     private VBoxContainer? _episodes;
     private List<Control> _actionButtons = [];
+
+    // Cast, crew and extras: asked for once, then the page is rebuilt with them.
+    private ItemDetails? _details;
+    private bool _detailsAsked;
+    private VBoxContainer? _detailHost;
+    private List<MediaRow> _detailRows = [];
 
     public DetailPage(MediaItem item) => _item = item;
 
@@ -101,7 +110,7 @@ public partial class DetailPage : Screen
         meta.AddRange(_item.Genres);
         info.AddChild(UiTheme.Label(string.Join("  ·  ", meta), UiTheme.SmallSize + 2, UiTheme.Dim, wrap: true));
         info.AddChild(UiTheme.Label("From " + _item.SourceName, UiTheme.SmallSize, UiTheme.Dim));
-        if (_item.Overview is { } o)
+        if (Spoilers.Overview(_item) is { } o)
         {
             var ov = UiTheme.Label(o, UiTheme.FontSize - 2, UiTheme.Text, wrap: true);
             ov.CustomMinimumSize = new Vector2(360, 0);
@@ -155,6 +164,10 @@ public partial class DetailPage : Screen
                 Act("Shuffle", () => MediaActions.PlayContainer(_item, shuffle: true), $"{_item.Title}: shuffle");
             }
         }
+        if (_details?.Trailer is { } trailer)
+        {
+            Act("▶  Trailer", () => MediaActions.PlayExtra(_item, trailer), $"{_item.Title}: trailer");
+        }
         if (Listable)
         {
             var on = lib.OnWatchlist(_item);
@@ -169,6 +182,8 @@ public partial class DetailPage : Screen
             AddLeftOff(info);
         }
 
+        _detailRows = [];
+        _detailHost = Column(Desktop ? 16 : 22);
         if (HasSeasons)
         {
             BuildSeasons(col, buttons);
@@ -197,6 +212,124 @@ public partial class DetailPage : Screen
                 b.FocusNeighborBottom = rows[0].GetPath();
             }
         }
+        col.AddChild(_detailHost);
+        if (_details != null)
+        {
+            FillDetails();
+        }
+        else
+        {
+            LoadDetails();
+        }
+    }
+
+    // ---- cast, crew and extras ----
+
+    private bool HasDetails => _item.Kind is MediaKind.Movie or MediaKind.Show or MediaKind.Episode;
+
+    private async void LoadDetails()
+    {
+        if (_detailsAsked || !HasDetails)
+        {
+            return;
+        }
+        _detailsAsked = true;
+        ItemDetails? details;
+        try
+        {
+            details = await Host.Library.DetailsAsync(_item);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"details of {_item.Id}: {e.Message}");
+            return;
+        }
+        if (!IsInstanceValid(this) || details == null || (details.People.Count == 0 && details.Extras.Count == 0))
+        {
+            return;
+        }
+        _details = details;
+        Rebuild();
+    }
+
+    /// <summary>Stand-in tile items for people: square photo, name, part or job.</summary>
+    private static MediaItem PersonItem(Person p) => new()
+    {
+        Id = $"person:{p.SourceId}:{p.Key}",
+        Title = p.Name,
+        Subtitle = p.Credit,
+        Kind = MediaKind.Artist,
+        PosterUrl = p.PhotoUrl,
+        SourceId = p.SourceId,
+        SourceName = "",
+    };
+
+    private MediaItem ExtraItem(Extra x) => new()
+    {
+        Id = $"extra:{_item.Id}:{x.Title}",
+        Title = x.Title,
+        Subtitle = x.Duration is { } d ? $"{x.Kind}  ·  {MediaItem.FormatDuration(d)}" : x.Kind,
+        Kind = MediaKind.Movie,
+        PosterUrl = x.ThumbUrl ?? _item.PosterUrl,
+        Poster = x.ThumbUrl == null ? _item.Poster : null,
+        SourceId = _item.SourceId,
+        SourceName = _item.SourceName,
+    };
+
+    private void FillDetails()
+    {
+        if (_details == null || _detailHost == null)
+        {
+            return;
+        }
+        var lib = Host.Library;
+        if (_details.People.Count > 0)
+        {
+            var people = _details.People;
+            var items = people.Select(PersonItem).ToList();
+            var row = new MediaRow(new HomeRow("cast", "Cast & crew", items), lib, Desktop, it => App.Push(new PersonPage(people[items.IndexOf(it)])), scale: 0.72f);
+            _detailHost.AddChild(row);
+            _detailRows.Add(row);
+        }
+        if (_details.Extras.Count > 0)
+        {
+            var extras = _details.Extras;
+            var items = extras.Select(ExtraItem).ToList();
+            var row = new MediaRow(new HomeRow("extras", extras.Count == 1 && extras[0].IsTrailer ? "Trailer" : "Trailers & extras", items, Wide: true), lib, Desktop,
+                it => MediaActions.PlayExtra(_item, extras[items.IndexOf(it)]), scale: 0.8f);
+            _detailHost.AddChild(row);
+            _detailRows.Add(row);
+        }
+        LinkDetails();
+    }
+
+    /// <summary>Up / down between the rows above (actions or the episode list) and the cast and extras rows.</summary>
+    private void LinkDetails()
+    {
+        if (_detailRows.Count == 0)
+        {
+            return;
+        }
+        Control? above = (_episodes != null ? _episodes.GetChildren().OfType<ListRow>().LastOrDefault() : LastListRow()) ?? _actionButtons.FirstOrDefault();
+        MediaRow.LinkRows(_detailRows, above);
+        var first = _detailRows[0].Tiles[0];
+        if (above is ListRow lastRow)
+        {
+            lastRow.FocusNeighborBottom = first.GetPath();
+        }
+        else
+        {
+            foreach (var b in _actionButtons)
+            {
+                b.FocusNeighborBottom = first.GetPath();
+            }
+        }
+    }
+
+    /// <summary>The last episode / track row of a list without seasons.</summary>
+    private ListRow? LastListRow()
+    {
+        return FindChildren("*", "", true, false).OfType<ListRow>().LastOrDefault();
     }
 
     /// <summary>A collection: its titles as a poster grid, plus rename / delete for one made here.</summary>
@@ -508,7 +641,7 @@ public partial class DetailPage : Screen
             var status = watched ? "✓  Watched" : progress is { } p && e.Duration is { } d ? $"{MediaItem.FormatDuration(d * (1 - p))} left" : e.DurationText;
             var label = e.Index is { } n ? $"{n}.  {e.Title}" : e.Title;
             var art = new PosterArt(e, thumb, progress, 8, showTitle: false) { Badge = watched ? "✓" : null };
-            var detail = e.Overview is { } o ? o.ReplaceLineEndings(" ") : "";
+            var detail = Spoilers.Overview(e) is { } o ? o.ReplaceLineEndings(" ") : Spoilers.Hidden(e) ? "Summary hidden until you watch it." : "";
             var row = new ListRow(label, detail, status, watched ? UiTheme.Good : UiTheme.Dim, art,
                 onPress: () => MediaActions.Play(e), help: $"{e.Title}: play")
             {
@@ -544,6 +677,7 @@ public partial class DetailPage : Screen
                 b.FocusNeighborBottom = down.GetPath();
             }
         }
+        LinkDetails();
     }
 
     private void ToggleSeasonWatched()

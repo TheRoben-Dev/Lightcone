@@ -151,6 +151,45 @@ public sealed class DemoSource : IMediaSource
         Items = items;
     }
 
+    // Made-up cast for the sample titles, so cast pages, person pages and extras can be tried.
+    private static readonly string[] Cast =
+    [
+        "Mara Lindqvist", "Theo Okafor", "Ines Navarro", "Jun Takeda", "Ada Brennan", "Felix Moreau", "Priya Raman", "Oskar Hale",
+    ];
+
+    private static readonly string[] Parts = ["The projectionist", "Night guard", "Captain Ruiz", "Dr. Vale", "The stranger", "Narrator", "Mira", "Station chief"];
+
+    private IEnumerable<int> CastOf(MediaItem item)
+    {
+        var seed = Math.Abs(item.Title.Aggregate(17, (h, c) => h * 31 + c)) % Cast.Length;
+        return Enumerable.Range(0, 4).Select(k => (seed + k * 3) % Cast.Length).Distinct();
+    }
+
+    public Task<ItemDetails?> DetailsAsync(MediaItem item, CancellationToken ct = default)
+    {
+        if (item.SourceId != SourceId || item.Kind is not (MediaKind.Movie or MediaKind.Show))
+        {
+            return Task.FromResult<ItemDetails?>(null);
+        }
+        var people = CastOf(item).Select((c, k) => new Person(Cast[c], Parts[(c + k) % Parts.Length], Person.Actor, null, SourceId, $"cast:{c}")).ToList();
+        var director = CastOf(item).Last();
+        people.Add(new Person(Cast[(director + 5) % Cast.Length], null, Person.Director, null, SourceId, $"cast:{(director + 5) % Cast.Length}"));
+        var i = Items.ToList().IndexOf(item);
+        var extras = new List<Extra>
+        {
+            new("Official trailer", "Trailer", 30, Video(i + 1, 30), null),
+            new("Making the light", "Behind the scenes", 90, Video(i + 2, 90), null),
+            new("The lost reel", "Deleted scene", 45, Video(i + 3, 45), null),
+        };
+        return Task.FromResult<ItemDetails?>(new ItemDetails(people, extras));
+    }
+
+    public async Task<IReadOnlyList<string>> TitlesWithAsync(Person person, CancellationToken ct = default)
+    {
+        var details = await Task.WhenAll(Items.Where(i => i.Kind is MediaKind.Movie or MediaKind.Show).Select(async i => (i, d: await DetailsAsync(i, ct))));
+        return details.Where(x => x.d?.People.Any(p => p.Key == person.Key) == true).Select(x => x.i.Id).ToList();
+    }
+
     private static string Video(int i, int seconds) =>
         $"av://lavfi:{Patterns[i % Patterns.Length]}=size=1280x720:rate=30:duration={seconds}";
 

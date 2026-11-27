@@ -9,7 +9,8 @@ namespace Lightcone.App.Screens;
 
 /// <summary>
 /// The player's options, as a card over the video: audio and subtitle tracks, then speed,
-/// subtitle and audio timing (remembered per show or movie) and the sleep timer.
+/// subtitle and audio timing (remembered per show or movie), the sleep timer, Night mode and
+/// Clear voices, then the chapters.
 /// </summary>
 public partial class TrackPickerPage : Screen
 {
@@ -119,6 +120,29 @@ public partial class TrackPickerPage : Screen
         };
         sleep.Changed += v => svc.SetSleep(int.Parse(v, CultureInfo.InvariantCulture));
         Add(sleep);
+        Add(Toggle.Create("Night mode", Host.Settings.NightMode, svc.SetNightMode,
+            "Evens out the volume: quiet dialogue comes up, explosions come down. Stays on until you turn it off.",
+            "Loud and quiet parts are brought closer together.", "The soundtrack plays as mixed."));
+        Add(Toggle.Create("Clear voices", Host.Settings.ClearVoices, svc.SetClearVoices,
+            "Lifts dialogue over music and effects (with surround, the centre channel). Stays on until you turn it off.",
+            "Dialogue is boosted.", "The soundtrack plays as mixed."));
+        if (svc.Chapters.Count > 1)
+        {
+            page.AddChild(Section("Chapters"));
+            var now = svc.CurrentChapter;
+            foreach (var c in svc.Chapters)
+            {
+                var start = c.Start;
+                var at = TimeSpan.FromSeconds(c.Start);
+                var row = new ListRow(c.Title, at.TotalHours >= 1 ? at.ToString(@"h\:mm\:ss") : at.ToString(@"m\:ss"), now?.Index == c.Index ? "▶" : null, UiTheme.Accent, onPress: () =>
+                {
+                    svc.SeekTo(start);
+                    App.Pop();
+                }, help: $"Chapter: {c.Title}") { CustomMinimumSize = new Vector2(0, 52) };
+                page.AddChild(row);
+                list.Add(row);
+            }
+        }
         return list;
     }
 

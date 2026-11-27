@@ -64,6 +64,15 @@ public interface IMediaSource
     /// <summary>Intro / credits markers when the server provides them.</summary>
     IReadOnlyList<Marker> MarkersOf(string itemId) => [];
 
+    /// <summary>Cast, crew and extras (trailers, featurettes) of a movie or show, fetched on demand; null when the source has none.</summary>
+    Task<ItemDetails?> DetailsAsync(MediaItem item, CancellationToken ct = default) => Task.FromResult<ItemDetails?>(null);
+
+    /// <summary>Ids of this source's movies and shows a person is in (as cast or crew).</summary>
+    Task<IReadOnlyList<string>> TitlesWithAsync(Person person, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>Seek preview thumbnails for an item, once <see cref="PrepareAsync"/> found them; null when the server has none.</summary>
+    SeekPreview? PreviewOf(string itemId) => null;
+
     Task RefreshAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 

@@ -22,6 +22,8 @@ public sealed class JellyfinSource : IMediaSource
     private IReadOnlyList<MediaItem> _items = [];
     private Dictionary<string, PlexState> _state = new();
     private readonly Dictionary<string, IReadOnlyList<Marker>> _markers = new();
+    private readonly Dictionary<string, SeekPreview> _previews = new();
+    private readonly Dictionary<string, ItemDetails> _details = new();
     private readonly Dictionary<string, DateTime> _lastReport = new();
     private readonly HashSet<string> _started = new();
     private Task _reports = Task.CompletedTask;
@@ -206,6 +208,169 @@ public sealed class JellyfinSource : IMediaSource
             // Older servers (before 10.10) have no media segments.
             AppLog.Info($"jellyfin {Name}: no segments for {item.Id}: {e.Message}");
         }
+        try
+        {
+            var key = ServerKey(item.Id);
+            using var doc = await _client.GetJsonAsync($"{Url}/Users/{_entry.UserId}/Items/{key}?Fields=Trickplay", _entry.Token, ct, TimeSpan.FromSeconds(10));
+            if (ParseTrickplay(doc.RootElement) is { } t)
+            {
+                var token = Uri.EscapeDataString(_entry.Token);
+                var preview = new TilePreview((i, c) => _client.GetBytesAsync(
+                    string.Create(CultureInfo.InvariantCulture, $"{Url}/Videos/{key}/Trickplay/{t.Width}/{i}.jpg?MediaSourceId={t.Source}&api_key={token}"), null, c),
+                    t.Width, t.Height, t.Columns, t.Rows, t.Count, t.Interval);
+                lock (_gate)
+                {
+                    _previews[item.Id] = preview;
+                }
+            }
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or JellyfinAuthException)
+        {
+            AppLog.Info($"jellyfin {Name}: no trickplay for {item.Id}: {e.Message}");
+        }
+    }
+
+    internal sealed record Trickplay(string Source, int Width, int Height, int Columns, int Rows, int Count, double Interval);
+
+    /// <summary>The trickplay set nearest 320 px wide (Jellyfin 10.9+), or null.</summary>
+    internal static Trickplay? ParseTrickplay(JsonElement m)
+    {
+        if (!m.TryGetProperty("Trickplay", out var tp) || tp.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+        Trickplay? best = null;
+        foreach (var source in tp.EnumerateObject())
+        {
+            if (source.Value.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+            foreach (var size in source.Value.EnumerateObject())
+            {
+                var v = size.Value;
+                if (JellyfinClient.Num(v, "Width") is not { } w || JellyfinClient.Num(v, "Height") is not { } h || JellyfinClient.Num(v, "ThumbnailCount") is not { } n)
+                {
+                    continue;
+                }
+                var t = new Trickplay(source.Name, (int)w, (int)h, (int)(JellyfinClient.Num(v, "TileWidth") ?? 10), (int)(JellyfinClient.Num(v, "TileHeight") ?? 10),
+                    (int)n, (JellyfinClient.Num(v, "Interval") ?? 10000) / 1000);
+                if (best == null || Math.Abs(t.Width - 320) < Math.Abs(best.Width - 320))
+                {
+                    best = t;
+                }
+            }
+        }
+        return best;
+    }
+
+    public SeekPreview? PreviewOf(string itemId)
+    {
+        lock (_gate)
+        {
+            return _previews.GetValueOrDefault(itemId);
+        }
+    }
+
+    // ---- cast, crew and extras ----
+
+    public async Task<ItemDetails?> DetailsAsync(MediaItem item, CancellationToken ct = default)
+    {
+        if (!Mine(item) || item.Kind is not (MediaKind.Movie or MediaKind.Show))
+        {
+            return null;
+        }
+        lock (_gate)
+        {
+            if (_details.TryGetValue(item.Id, out var cached))
+            {
+                return cached;
+            }
+        }
+        var key = ServerKey(item.Id);
+        var user = _entry.UserId;
+        using var doc = await _client.GetJsonAsync($"{Url}/Users/{user}/Items/{key}", _entry.Token, ct, TimeSpan.FromSeconds(15));
+        var people = ParsePeople(doc.RootElement);
+        var extras = new List<Extra>();
+        foreach (var path in new[] { "LocalTrailers", "SpecialFeatures" })
+        {
+            try
+            {
+                using var list = await _client.GetJsonAsync($"{Url}/Users/{user}/Items/{key}/{path}", _entry.Token, ct, TimeSpan.FromSeconds(15));
+                extras.AddRange(ParseExtras(list.RootElement, path == "LocalTrailers"));
+            }
+            catch (Exception e) when (e is HttpRequestException or JsonException)
+            {
+                AppLog.Info($"jellyfin {Name}: no {path} for {item.Id}: {e.Message}");
+            }
+        }
+        var details = new ItemDetails(people, extras.DistinctBy(e => e.PlayUrl).OrderBy(e => e.IsTrailer ? 0 : 1).ToList());
+        lock (_gate)
+        {
+            _details[item.Id] = details;
+        }
+        return details;
+    }
+
+    internal IReadOnlyList<Person> ParsePeople(JsonElement m)
+    {
+        var people = new List<Person>();
+        foreach (var p in Array(m, "People"))
+        {
+            if (JellyfinClient.Str(p, "Name") is not { } name || JellyfinClient.Str(p, "Id") is not { } pid)
+            {
+                continue;
+            }
+            var job = JellyfinClient.Str(p, "Type") switch
+            {
+                "Actor" or "GuestStar" => Person.Actor,
+                "Director" => Person.Director,
+                "Writer" => Person.Writer,
+                _ => null,
+            };
+            if (job == null)
+            {
+                continue;
+            }
+            var tag = JellyfinClient.Str(p, "PrimaryImageTag");
+            var photo = tag == null ? null : $"{Url}/Items/{pid}/Images/Primary?fillWidth=300&fillHeight=300&quality=90&tag={Uri.EscapeDataString(tag)}";
+            people.Add(new Person(name, job == Person.Actor ? JellyfinClient.Str(p, "Role") : null, job, photo, Id, pid));
+        }
+        // Cast first (as the server orders them), then directors and writers.
+        return people.Where(p => p.Job == Person.Actor).Take(30)
+            .Concat(people.Where(p => p.Job == Person.Director).Take(4))
+            .Concat(people.Where(p => p.Job == Person.Writer).Take(4)).ToList();
+    }
+
+    internal IReadOnlyList<Extra> ParseExtras(JsonElement root, bool trailers)
+    {
+        var items = root.ValueKind == JsonValueKind.Array ? root.EnumerateArray() : Array(root, "Items");
+        var token = Uri.EscapeDataString(_entry.Token);
+        var list = new List<Extra>();
+        foreach (var x in items)
+        {
+            if (JellyfinClient.Str(x, "Id") is not { } id || JellyfinClient.Str(x, "Name") is not { } name)
+            {
+                continue;
+            }
+            var kind = trailers ? "Trailer" : ItemDetails.ExtraKind(JellyfinClient.Str(x, "ExtraType"));
+            var tag = PrimaryTag(x);
+            var thumb = tag == null ? null : $"{Url}/Items/{id}/Images/Primary?fillWidth=640&fillHeight=360&quality=90&tag={Uri.EscapeDataString(tag)}";
+            var duration = JellyfinClient.Num(x, "RunTimeTicks") is { } t ? t / Ticks : (double?)null;
+            list.Add(new Extra(name, kind, duration, $"{Url}/Videos/{id}/stream?static=true&api_key={token}", thumb));
+        }
+        return list;
+    }
+
+    public async Task<IReadOnlyList<string>> TitlesWithAsync(Person person, CancellationToken ct = default)
+    {
+        if (person.SourceId != Id)
+        {
+            return [];
+        }
+        using var doc = await _client.GetJsonAsync(
+            $"{Url}/Users/{_entry.UserId}/Items?PersonIds={Uri.EscapeDataString(person.Key)}&Recursive=true&IncludeItemTypes=Movie,Series", _entry.Token, ct, TimeSpan.FromSeconds(20));
+        return Array(doc.RootElement, "Items").Select(x => JellyfinClient.Str(x, "Id")).OfType<string>().Select(id => $"{Id}:{id}").ToList();
     }
 
     internal static IReadOnlyList<Marker> ParseSegments(JsonElement root)

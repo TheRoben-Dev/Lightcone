@@ -201,6 +201,75 @@ public partial class PlayerService : Node
         Changed?.Invoke();
     }
 
+    // ---- chapters ----
+
+    /// <summary>Chapters of what's playing (from the file), in order.</summary>
+    public IReadOnlyList<Chapter> Chapters { get; private set; } = [];
+
+    public Chapter? CurrentChapter => Chapter.At(Chapters, Position);
+
+    /// <summary>Next (+1) or previous (-1) chapter; "previous" restarts the current one unless it just began.</summary>
+    public bool StepChapter(int dir)
+    {
+        if (Chapters.Count == 0)
+        {
+            return false;
+        }
+        var cur = CurrentChapter;
+        Chapter? target;
+        if (dir > 0)
+        {
+            target = Chapters.FirstOrDefault(c => c.Start > Position + 0.5);
+        }
+        else
+        {
+            target = cur != null && Position - cur.Start > 3 ? cur : Chapters.LastOrDefault(c => c.Start < (cur?.Start ?? Position) - 0.5) ?? Chapters[0];
+        }
+        if (target == null)
+        {
+            return false;
+        }
+        SeekTo(target.Start);
+        return true;
+    }
+
+    // ---- sound: night mode and clear voices ----
+
+    private int? AudioChannels => Tracks.FirstOrDefault(t => t.Kind == TrackKind.Audio && t.Selected)?.Channels;
+
+    private string _af = "";
+
+    /// <summary>Sets mpv's audio filters from Settings (Night mode, Clear voices) for the playing track.</summary>
+    public void ApplyAudioFilters()
+    {
+        var s = Host.Settings;
+        var af = HasVideo || Current?.Kind is MediaKind.Movie or MediaKind.Episode ? AudioFilters.Build(s.NightMode, s.ClearVoices, AudioChannels) : "";
+        if (af == _af || _mpv == null)
+        {
+            return;
+        }
+        _af = af;
+        AppLog.Info($"audio filters: {(af.Length == 0 ? "none" : af)}");
+        Guard(() => _mpv.SetString("af", af));
+    }
+
+    public void SetNightMode(bool on)
+    {
+        Host.SaveSettings(Host.Settings with { NightMode = on });
+        ApplyAudioFilters();
+        Changed?.Invoke();
+    }
+
+    public void SetClearVoices(bool on)
+    {
+        Host.SaveSettings(Host.Settings with { ClearVoices = on });
+        ApplyAudioFilters();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Seek bar thumbnails for what's playing, when its server has them.</summary>
+    public SeekPreview? Preview => Current is { } c ? Host.Library.PreviewOf(c) : null;
+
     // ---- what plays next: in order, or shuffled ----
 
     /// <summary>The show being shuffled (random episodes in a row), or null.</summary>
@@ -319,7 +388,7 @@ public partial class PlayerService : Node
         {
             GlProc.Detect();
             _mpv = new MpvPlayer(Options());
-            foreach (var p in new[] { "pause", "track-list", "duration", "hwdec-current", "aid", "sid" })
+            foreach (var p in new[] { "pause", "track-list", "duration", "hwdec-current", "aid", "sid", "chapter-list" })
             {
                 _mpv.Observe(p);
             }
@@ -383,6 +452,14 @@ public partial class PlayerService : Node
         }
         RestoreVolume();
         var start = startAt ?? (fromStart ? 0 : Host.Library.PositionOf(item) ?? 0);
+        if (startAt == null && start > 0 && Host.Settings.SmartResume && item.Kind is MediaKind.Movie or MediaKind.Episode)
+        {
+            // Back up a little (more after a long break) so the last line plays again.
+            var last = Host.Library.LastViewed(item);
+            var rewind = ResumePolicy.Rewind(last is { } t ? DateTime.UtcNow - t.ToUniversalTime() : null);
+            start = Math.Max(0, start - rewind);
+        }
+        Chapters = [];
         Current = item;
         Position = start;
         _seekTarget = null;
@@ -592,10 +669,16 @@ public partial class PlayerService : Node
 
     private double _watchedSeconds;
 
+    /// <summary>Source id of trailers and extras: played as is, with no progress or history kept.</summary>
+    public const string ExtraSource = "extra";
+
+    /// <summary>Opened files and extras stay out of the history.</summary>
+    private static bool Untracked(MediaItem item) => item.SourceId is "file" or ExtraSource;
+
     /// <summary>Adds the time watched since the last call to the history (the stats page).</summary>
     private void FlushHistory(bool finished = false, bool flush = true)
     {
-        if (Current is not { } item || item.SourceId == "file" || (_watchedSeconds < 1 && !finished))
+        if (Current is not { } item || Untracked(item) || (_watchedSeconds < 1 && !finished))
         {
             _watchedSeconds = 0;
             return;
@@ -607,7 +690,7 @@ public partial class PlayerService : Node
 
     private void SaveProgress(PlaybackState state = PlaybackState.Playing)
     {
-        if (Current is { } item && Position > 0)
+        if (Current is { } item && Position > 0 && item.SourceId != ExtraSource)
         {
             Host.Library.Report(item, Position, Duration, state);
         }
@@ -627,11 +710,22 @@ public partial class PlayerService : Node
                     HwdecCurrent = _mpv.GetString("hwdec-current") ?? "";
                     Tracks = _mpv.Tracks;
                     HasVideo = Tracks.Any(t => t.Kind == TrackKind.Video) && Current?.Kind is not (MediaKind.Track or MediaKind.Album);
-                    AppLog.Info($"loaded: {Tracks.Count} tracks, hwdec {HwdecCurrent}, {_mpv.GetString("video-codec")}");
+                    Chapters = Chapter.ParseList(_mpv.GetString("chapter-list"));
+                    ApplyAudioFilters();
+                    AppLog.Info($"loaded: {Tracks.Count} tracks, {Chapters.Count} chapters, hwdec {HwdecCurrent}, {_mpv.GetString("video-codec")}");
                     Changed?.Invoke();
                     break;
                 case MpvEventId.PropertyChange when e.Property is "track-list" or "aid" or "sid":
+                    var channels = AudioChannels;
                     Tracks = _mpv.Tracks;
+                    if (AudioChannels != channels)
+                    {
+                        ApplyAudioFilters();
+                    }
+                    Changed?.Invoke();
+                    break;
+                case MpvEventId.PropertyChange when e.Property == "chapter-list" && Current != null:
+                    Chapters = Chapter.ParseList(_mpv.GetString("chapter-list"));
                     Changed?.Invoke();
                     break;
                 case MpvEventId.PropertyChange when e.Property == "hwdec-current":
@@ -649,7 +743,10 @@ public partial class PlayerService : Node
                 case MpvEventId.EndFile when e.EndReason == 0 && Current is { } done && !_ending:
                     _ending = true;
                     FlushHistory(finished: true);
-                    Host.Library.Report(done, Duration ?? Position, Duration, PlaybackState.Stopped);
+                    if (done.SourceId != ExtraSource)
+                    {
+                        Host.Library.Report(done, Duration ?? Position, Duration, PlaybackState.Stopped);
+                    }
                     Finished?.Invoke(done);
                     break;
             }
@@ -662,7 +759,10 @@ public partial class PlayerService : Node
                 // keep-open=yes: the end shows as eof-reached, not end-file.
                 _ending = true;
                 FlushHistory(finished: true);
-                Host.Library.Report(item, Duration ?? Position, Duration, PlaybackState.Stopped);
+                if (item.SourceId != ExtraSource)
+                {
+                    Host.Library.Report(item, Duration ?? Position, Duration, PlaybackState.Stopped);
+                }
                 Finished?.Invoke(item);
             }
             ActiveMarker = Host.Library.MarkersOf(Current).FirstOrDefault(m => Position >= m.Start && Position < m.End - 1);

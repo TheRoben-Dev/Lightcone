@@ -75,6 +75,18 @@ public sealed record AppSettings
     /// <summary>Ask "Still watching?" after this many episodes play by themselves in a row; 0 = never.</summary>
     public int StillWatchingAfter { get; init; } = 3;
 
+    /// <summary>Night mode: evens out loud action against quiet dialogue (a compressor on the sound).</summary>
+    public bool NightMode { get; init; }
+
+    /// <summary>Clear voices: dialogue lifted above music and effects.</summary>
+    public bool ClearVoices { get; init; }
+
+    /// <summary>Hide unwatched episodes' thumbnails and summaries.</summary>
+    public bool HideSpoilers { get; init; }
+
+    /// <summary>Resume a few seconds early (more after a long break) to catch the last line again.</summary>
+    public bool SmartResume { get; init; } = true;
+
     /// <summary>Recap the last episode before playing a show after this many days away; -1 = never, 0 = every time.</summary>
     public int RecapAfterDays { get; init; } = 7;
 

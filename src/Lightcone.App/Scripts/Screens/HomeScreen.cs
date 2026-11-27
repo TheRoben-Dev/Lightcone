@@ -87,7 +87,7 @@ public partial class HomeScreen : Screen
         meta.AddRange(item.Genres.Take(2));
         meta.Add(item.SourceName);
         text.AddChild(UiTheme.Label(string.Join("  ·  ", meta), UiTheme.SmallSize + 1, UiTheme.Dim));
-        if (item.Overview is { } o)
+        if (Spoilers.Overview(item) is { } o)
         {
             var ov = UiTheme.Label(o, UiTheme.SmallSize + 2, UiTheme.Text, wrap: true);
             ov.MaxLinesVisible = 3;

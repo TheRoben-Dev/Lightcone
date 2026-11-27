@@ -76,6 +76,15 @@ public sealed class PlexClient
         return JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token));
     }
 
+    /// <summary>Downloads a file (seek preview index) with the token.</summary>
+    public async Task<byte[]> GetBytesAsync(string url, string token, CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, url, token);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsByteArrayAsync(ct);
+    }
+
     /// <summary>A plain GET/PUT for reporting (timeline, scrobble); errors are the caller's to ignore.</summary>
     public async Task SendAsync(HttpMethod method, string url, string token, CancellationToken ct = default)
     {

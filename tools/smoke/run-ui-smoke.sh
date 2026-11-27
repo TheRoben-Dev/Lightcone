@@ -26,6 +26,15 @@ if [ -n "${SMOKE_THEME:-}" ]; then
   printf '{"Theme":"%s"}\n' "$SMOKE_THEME" > "$XDG_CONFIG_HOME/lightcone/settings.json"
 fi
 
+# A short video with chapters, for the chapter steps (skipped without ffmpeg).
+if command -v ffmpeg >/dev/null 2>&1; then
+  printf ';FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=20000\ntitle=Opening\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=20000\nEND=40000\ntitle=The heist\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=40000\nEND=60000\ntitle=Credits\n' > "$WORK/chapters.txt"
+  if ffmpeg -v error -f lavfi -i testsrc2=size=640x360:rate=30:duration=60 -f lavfi -i sine=frequency=330:duration=60 -i "$WORK/chapters.txt" \
+      -map 0 -map 1 -map_metadata 2 -map_chapters 2 -c:v mpeg4 -q:v 8 -c:a aac -shortest "$WORK/chapters.mkv"; then
+    export SMOKE_CHAPTERS="$WORK/chapters.mkv"
+  fi
+fi
+
 cd "$ROOT/src/Lightcone.App"
 PROJECT=(--path .)
 [ "$(basename "$GODOT")" = "Lightcone.x86_64" ] && PROJECT=()  # exported build: project is embedded
