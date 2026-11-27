@@ -13,22 +13,32 @@ public partial class HomeScreen : Screen
 {
     private Control? _first;
 
-    public override IEnumerable<(string Action, string Label)> Hints => [(Pad.Switch, "Search")];
+    public override IEnumerable<(string Action, string Label)> Hints =>
+        [(Pad.Secondary, "Surprise me"), (Pad.Tertiary, "Your stats"), (Pad.Switch, "Search")];
 
     protected override void Build()
     {
         _first = null;
         var lib = Host.Library;
-        var rows = lib.HomeRows();
+        var rows = lib.HomeRows(Host.Settings.HomeOrder, Host.Settings.HomeHidden).ToList();
+        // Downloads, ready to watch offline, right after what you're watching.
+        var downloaded = Host.Downloads.Entries.Where(e => e.State == DownloadState.Done).OrderByDescending(e => e.Added)
+            .Select(e => lib.Find(e.Item.Id) ?? e.Item).Take(20).ToList();
+        if (downloaded.Count > 0)
+        {
+            var at = rows.FindIndex(r => r.Id == "continue") + 1;
+            rows.Insert(at, new HomeRow("downloads", "Downloaded", downloaded, Wide: downloaded.All(i => i.Kind == MediaKind.Episode)));
+        }
         if (rows.Count == 0)
         {
             BuildEmpty();
             return;
         }
         var col = Column(Desktop ? 22 : 30);
-        AddChild(Scroller(col));
-        var featured = rows[0].Items[0];
-        var hero = BuildHero(featured, resume: rows[0].Id == "continue");
+        AddChild(Faded(Scroller(col)));
+        var lead = rows.FirstOrDefault(r => r.Id == "continue") ?? rows[0];
+        var featured = lead.Items[0];
+        var hero = BuildHero(featured, resume: lead.Id == "continue");
         col.AddChild(hero.Panel);
         var mediaRows = new List<MediaRow>();
         foreach (var row in rows)
@@ -86,7 +96,7 @@ public partial class HomeScreen : Screen
         meta.AddRange(item.Genres.Take(2));
         meta.Add(item.SourceName);
         text.AddChild(UiTheme.Label(string.Join("  ·  ", meta), UiTheme.SmallSize + 1, UiTheme.Dim));
-        if (item.Overview is { } o)
+        if (Spoilers.Overview(item) is { } o)
         {
             var ov = UiTheme.Label(o, UiTheme.SmallSize + 2, UiTheme.Text, wrap: true);
             ov.MaxLinesVisible = 3;
@@ -110,11 +120,26 @@ public partial class HomeScreen : Screen
             }
         }, $"{item.Title}: play") { CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54) };
         var details = new ActionButton("Details", () => App.Push(new DetailPage(item)), $"{item.Title}: details") { CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54) };
+        var surprise = new ActionButton("Surprise me", () => App.Push(new SurprisePage()), "Surprise me: a random pick from what you haven't watched")
+        {
+            CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54),
+        };
         play.SetMeta(PosterTile.NoHelp, true);
         details.SetMeta(PosterTile.NoHelp, true);
+        surprise.SetMeta(PosterTile.NoHelp, true);
         buttons.AddChild(play);
         buttons.AddChild(details);
-        return (panel, play, [play, details]);
+        buttons.AddChild(surprise);
+        var list = new List<Control> { play, details, surprise };
+        if (Desktop)
+        {
+            // Controller mode opens the stats with X (see the hint bar).
+            var stats = new ActionButton("Your stats", () => App.Push(new StatsPage()), "Your watch stats") { CustomMinimumSize = new Vector2(0, 44) };
+            stats.SetMeta(PosterTile.NoHelp, true);
+            buttons.AddChild(stats);
+            list.Add(stats);
+        }
+        return (panel, play, list);
     }
 
     private void BuildEmpty()
@@ -144,5 +169,13 @@ public partial class HomeScreen : Screen
 
     public override void OnAction(string action)
     {
+        if (action == Pad.Secondary)
+        {
+            App.Push(new SurprisePage());
+        }
+        else if (action == Pad.Tertiary)
+        {
+            App.Push(new StatsPage());
+        }
     }
 }

@@ -2,10 +2,16 @@ using Godot;
 using Lightcone.App.Playback;
 using Lightcone.App.Ui;
 using Lightcone.Playback;
+using Lightcone.Host.Library;
+using System.Globalization;
 
 namespace Lightcone.App.Screens;
 
-/// <summary>Audio and subtitle tracks for what's playing, as a card over the video.</summary>
+/// <summary>
+/// The player's options, as a card over the video: audio and subtitle tracks, then speed,
+/// subtitle and audio timing (remembered per show or movie), the sleep timer, Night mode and
+/// Clear voices, then the chapters.
+/// </summary>
 public partial class TrackPickerPage : Screen
 {
     private Control? _first;
@@ -17,9 +23,11 @@ public partial class TrackPickerPage : Screen
     protected override void Build()
     {
         var svc = PlayerService.Instance;
+        var page = Column(14);
+        AddChild(CardFrame(Scroller(page)));
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 30);
-        AddChild(CardFrame(row));
+        page.AddChild(row);
         var audio = Column(8);
         var subs = Column(8);
         row.AddChild(audio);
@@ -62,11 +70,113 @@ public partial class TrackPickerPage : Screen
             subs.AddChild(b);
             sRows.Add(b);
         }
-        Focus.Column(aRows, right: sRows.FirstOrDefault());
-        Focus.Column(sRows, left: aRows.FirstOrDefault());
+        if (svc.Current is { } playing && Host.Library.CanSearchSubtitles(playing))
+        {
+            var find = new ListRow("Find subtitles…", "", null, UiTheme.Accent, onPress: () => App.Push(new SubtitleSearchPage(playing)),
+                help: "Search OpenSubtitles through your server and add one to this video.") { CustomMinimumSize = new Vector2(0, 52) };
+            subs.AddChild(find);
+            sRows.Add(find);
+        }
+        var steppers = BuildPlayback(page, svc);
+        if (svc.Current is { } now && Host.Library.CanCast(now))
+        {
+            var cast = new ActionButton("Play on another screen…", () =>
+            {
+                App.Pop();
+                App.Push(new CastPage(now, svc.Position));
+            }, "Hand this over to a TV or phone app on the same server, from this spot.");
+            page.AddChild(cast);
+            steppers.Add(cast);
+        }
+        Focus.Column(aRows, right: sRows.FirstOrDefault(), below: steppers[0]);
+        Focus.Column(sRows, left: aRows.FirstOrDefault(), below: steppers[0]);
+        Focus.Column(steppers, above: aRows.LastOrDefault() ?? sRows.LastOrDefault());
         _first = aRows.FirstOrDefault(r => r is ListRow) ?? sRows.FirstOrDefault();
         var info = UiTheme.Label($"Decoding: {(svc.HwdecCurrent is "" or "no" ? "software" : svc.HwdecCurrent)}  ·  Drawing: {svc.RenderPath}", UiTheme.SmallSize, UiTheme.Dim);
         subs.AddChild(info);
+    }
+
+    private static string Seconds(double v) => v == 0 ? "0.0 s" : v.ToString("+0.0 's';-0.0 's'", CultureInfo.InvariantCulture);
+
+    private static IEnumerable<(string, string)> Delays() =>
+        Enumerable.Range(-50, 101).Select(i => i / 10.0).Select(v => (v.ToString("0.0", CultureInfo.InvariantCulture), Seconds(v)));
+
+    /// <summary>Speed, subtitle / audio delay and the sleep timer, as steppers under the tracks.</summary>
+    private List<Control> BuildPlayback(VBoxContainer page, PlayerService svc)
+    {
+        page.AddChild(Section("Playback"));
+        var cur = svc.Current;
+        var which = cur?.Kind == MediaKind.Episode ? "every episode of this show" : cur?.Kind == MediaKind.Movie ? "this movie" : "this";
+        var list = new List<Control>();
+        void Add(Stepper st)
+        {
+            page.AddChild(st);
+            list.Add(st);
+        }
+        if (cur != null && Host.Library.CanConvert(cur) && Host.Downloads.LocalFile(cur) == null)
+        {
+            var q = new Stepper("Quality", QualityPolicy.Choices.Select(x => (x.Id, x.Label)), svc.QualityFor(cur).Id,
+                (Host.Library.IsRemote(cur) ? "Away from home. " : "") + "Picking another reopens the video at the same spot. Lasts until you quit; Settings → Playback sets the usual one.")
+            {
+                Wrap = false,
+                Expands = true,
+                DetailFor = QualityPolicy.Describe,
+            };
+            q.Changed += v =>
+            {
+                svc.SetQuality(v);
+                App.Toast("Quality: " + QualityPolicy.Find(v).Label);
+            };
+            Add(q);
+        }
+        double[] speeds = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+        var speed = new Stepper("Speed", speeds.Select(v => (v.ToString("0.##", CultureInfo.InvariantCulture), v == 1 ? "Normal" : v.ToString("0.##", CultureInfo.InvariantCulture) + "×")),
+            speeds.OrderBy(v => Math.Abs(v - svc.Speed)).First().ToString("0.##", CultureInfo.InvariantCulture),
+            $"Playback speed, with the pitch kept natural. Remembered for {which}.") { Wrap = false };
+        speed.Changed += v => svc.SetSpeed(double.Parse(v, CultureInfo.InvariantCulture));
+        Add(speed);
+        var sub = new Stepper("Subtitle timing", Delays(), Math.Clamp(Math.Round(svc.SubDelay, 1), -5, 5).ToString("0.0", CultureInfo.InvariantCulture),
+            $"Subtitles early or late? Positive shows them later, negative earlier. Remembered for {which}.") { Wrap = false };
+        sub.Changed += v => svc.SetSubDelay(double.Parse(v, CultureInfo.InvariantCulture));
+        Add(sub);
+        var audio = new Stepper("Audio timing", Delays(), Math.Clamp(Math.Round(svc.AudioDelay, 1), -5, 5).ToString("0.0", CultureInfo.InvariantCulture),
+            $"Lips and voices out of sync (Bluetooth headphones)? Positive delays the sound. Remembered for {which}.") { Wrap = false };
+        audio.Changed += v => svc.SetAudioDelay(double.Parse(v, CultureInfo.InvariantCulture));
+        Add(audio);
+        var end = cur?.Kind == MediaKind.Episode ? "End of this episode" : "End of this one";
+        var sleep = new Stepper("Sleep timer", [("0", "Off"), ("15", "15 min"), ("30", "30 min"), ("45", "45 min"), ("60", "1 hour"), ("90", "1 h 30 min"), ("-1", end)],
+            svc.SleepChoice.ToString(CultureInfo.InvariantCulture),
+            "Pauses playback for you (the sound fades out first), and keeps your spot.")
+        {
+            Expands = true,
+            DetailFor = _ => svc.SleepText is { } t ? t + "." : null,
+        };
+        sleep.Changed += v => svc.SetSleep(int.Parse(v, CultureInfo.InvariantCulture));
+        Add(sleep);
+        Add(Toggle.Create("Night mode", Host.Settings.NightMode, svc.SetNightMode,
+            "Evens out the volume: quiet dialogue comes up, explosions come down. Stays on until you turn it off.",
+            "Loud and quiet parts are brought closer together.", "The soundtrack plays as mixed."));
+        Add(Toggle.Create("Clear voices", Host.Settings.ClearVoices, svc.SetClearVoices,
+            "Lifts dialogue over music and effects (with surround, the centre channel). Stays on until you turn it off.",
+            "Dialogue is boosted.", "The soundtrack plays as mixed."));
+        if (svc.Chapters.Count > 1)
+        {
+            page.AddChild(Section("Chapters"));
+            var now = svc.CurrentChapter;
+            foreach (var c in svc.Chapters)
+            {
+                var start = c.Start;
+                var at = TimeSpan.FromSeconds(c.Start);
+                var row = new ListRow(c.Title, at.TotalHours >= 1 ? at.ToString(@"h\:mm\:ss") : at.ToString(@"m\:ss"), now?.Index == c.Index ? "▶" : null, UiTheme.Accent, onPress: () =>
+                {
+                    svc.SeekTo(start);
+                    App.Pop();
+                }, help: $"Chapter: {c.Title}") { CustomMinimumSize = new Vector2(0, 52) };
+                page.AddChild(row);
+                list.Add(row);
+            }
+        }
+        return list;
     }
 
     public override void FocusDefault() => _first?.GrabFocus();

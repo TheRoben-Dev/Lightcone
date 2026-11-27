@@ -232,6 +232,60 @@ public partial class AnimatedBackground : Control
     /// <summary>Shader body per theme id; unknown ids get the Dark one.</summary>
     internal static string Body(string id) => id switch
     {
+        // Lightcone: a projector beam from the booth (top left) through a dark auditorium. Slow
+        // smoke in the beam, dust motes that glint only inside it, the light shifting colour as if
+        // reflecting the film (with the odd flicker), and velvet curtains glowing red at the sides.
+        "lightcone" => """
+            void fragment() {
+                vec2 p = UV * size;
+                float aspect = size.x / size.y;
+                vec2 src = vec2(0.10, -0.10) * size;
+                vec2 aim = normalize(vec2(0.86, 1.0) * size - src);
+                vec2 d = p - src;
+                float dist = length(d);
+                float along = dot(d, aim);
+                float across = abs(aim.x * d.y - aim.y * d.x);
+                float half_w = along * 0.30 + 12.0;
+                float cone = smoothstep(1.0, 0.55, across / max(half_w, 1.0)) * step(0.0, along);
+                float core = smoothstep(1.0, 0.0, across / max(half_w * 0.45, 1.0));
+                float fall = clamp(1.25 - along / (size.y * 1.6), 0.25, 1.0);
+                // Smoke drifting through the beam.
+                vec2 sp = p * 0.0035 + vec2(t * 0.018, -t * 0.011);
+                float smoke = noise(sp) * 0.65 + noise(sp * 2.3 + 7.0) * 0.35;
+                // The film's colour: a slow walk through warm hues, with a subtle flicker.
+                vec3 film = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + t * 0.021 + noise(vec2(t * 0.05, 3.0)) * 0.6));
+                vec3 warm = info.rgb;
+                vec3 tint = mix(warm, film, 0.38);
+                float flicker = 0.92 + 0.08 * noise(vec2(t * 9.0, 1.0)) - 0.05 * step(0.985, hash(vec2(floor(t * 12.0), 5.0)));
+                float beam = cone * fall * (0.55 + 0.45 * smoke) * flicker;
+                beam += core * cone * fall * 0.35 * flicker;
+                // Dust: two layers of jittered motes, visible only in the light.
+                float dust = 0.0;
+                for (int l = 0; l < 2; l++) {
+                    float cs = l == 0 ? 46.0 : 74.0;
+                    vec2 drift = vec2(t * (l == 0 ? 3.0 : 1.6), -t * (l == 0 ? 2.2 : 1.1));
+                    vec2 q = p + drift;
+                    vec2 id = floor(q / cs);
+                    vec2 o = vec2(hash(id + float(l) * 13.0), hash(id + 31.0 + float(l)));
+                    o += 0.18 * vec2(sin(t * 0.7 + o.y * 20.0), cos(t * 0.6 + o.x * 20.0));
+                    vec2 c = (id + 0.15 + o * 0.7) * cs;
+                    float r = l == 0 ? 1.1 : 1.6;
+                    float m = exp(-pow(length(q - c) / r, 2.0));
+                    float tw = 0.5 + 0.5 * sin(t * (1.5 + o.x * 3.0) + o.y * 40.0);
+                    dust += m * step(0.35, hash(id + 71.0 + float(l))) * tw;
+                }
+                dust *= cone * fall;
+                // Velvet curtains: soft red folds at the left and right edges.
+                float fx = min(UV.x, 1.0 - UV.x);
+                float folds = 0.55 + 0.45 * sin(p.x * 0.09 + sin(p.y * 0.004 + t * 0.05) * 1.5);
+                float curtain = smoothstep(0.075, 0.0, fx) * folds * (0.55 + 0.45 * UV.y);
+                // A faint red glow along the floor (the aisle lights).
+                float floor_glow = smoothstep(0.82, 1.0, UV.y) * 0.5;
+                vec3 col = tint * beam * 0.22 + tint * dust * 0.7 + accent.rgb * (curtain * 0.16 + floor_glow * 0.05);
+                float a = clamp(beam * 0.22 + dust * 0.7 + curtain * 0.16 + floor_glow * 0.05, 0.0, 0.6);
+                COLOR = vec4(col / max(a, 0.001), a);
+            }
+            """,
         // Pulsing dot grid: dots light up under a slow scan sweep and an expanding ring.
         "nightgrid" => """
             void fragment() {

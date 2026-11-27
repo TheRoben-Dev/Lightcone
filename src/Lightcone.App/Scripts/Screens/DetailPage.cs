@@ -1,3 +1,4 @@
+using Lightcone.Host;
 using Godot;
 using Lightcone.App.Ui;
 using Lightcone.Host.Library;
@@ -6,7 +7,9 @@ namespace Lightcone.App.Screens;
 
 /// <summary>
 /// An item's page: art, facts, overview and actions. Shows list their episodes, albums their
-/// tracks. Used as is in both modes (Desktop only shrinks it).
+/// tracks. Movies, shows and episodes also get a Trailer button, a Cast &amp; crew row (each person
+/// opens their other titles in the library) and Trailers &amp; extras, loaded from the server after
+/// the page opens. Used as is in both modes (Desktop only shrinks it).
 /// </summary>
 public partial class DetailPage : Screen
 {
@@ -19,6 +22,91 @@ public partial class DetailPage : Screen
     private MediaRow? _strip;
     private VBoxContainer? _episodes;
     private List<Control> _actionButtons = [];
+    private Button? _downloadButton;
+    private double _downloadClock;
+    private readonly Dictionary<Control, NodePath> _belowActions = [];
+
+    /// <summary>
+    /// Action buttons on more than one line: up and down move between the lines (nearest button);
+    /// only the last line goes on down to what's below.
+    /// </summary>
+    private void WireActionLines()
+    {
+        var live = _actionButtons.Where(IsInstanceValid).ToList();
+        if (live.Count == 0)
+        {
+            return;
+        }
+        var lines = live.GroupBy(b => Mathf.RoundToInt(b.Position.Y)).OrderBy(g => g.Key).Select(g => g.ToList()).ToList();
+        Control Nearest(List<Control> line, Control from) =>
+            line.MinBy(b => Math.Abs(b.Position.X + b.Size.X / 2 - (from.Position.X + from.Size.X / 2)))!;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            foreach (var b in lines[i])
+            {
+                if (i > 0)
+                {
+                    b.FocusNeighborTop = Nearest(lines[i - 1], b).GetPath();
+                }
+                else if (b.FocusNeighborTop is { } up && up != b.GetPath() && live.Any(o => o.GetPath() == up))
+                {
+                    b.FocusNeighborTop = b.GetPath();  // was a line below the top one before a re-flow
+                }
+                if (i < lines.Count - 1)
+                {
+                    b.FocusNeighborBottom = Nearest(lines[i + 1], b).GetPath();
+                }
+                else if (_belowActions.TryGetValue(_actionButtons[0], out var below))
+                {
+                    b.FocusNeighborBottom = below;
+                }
+                else if (live.Any(o => o != b && o.GetPath() == b.FocusNeighborBottom))
+                {
+                    // Pointed at a button on a line that's gone after a re-flow: whatever the
+                    // first line's buttons go down to, or nowhere.
+                    var other = lines[0][0].FocusNeighborBottom;
+                    b.FocusNeighborBottom = live.Any(o => o.GetPath() == other) ? b.GetPath() : other;
+                }
+            }
+        }
+    }
+
+    /// <summary>Points the action buttons' down at <paramref name="target"/> (the last line only, when wrapped).</summary>
+    private void ActionsDownTo(Control target)
+    {
+        foreach (var b in _actionButtons)
+        {
+            b.FocusNeighborBottom = target.GetPath();
+        }
+        if (_actionButtons.Count > 0)
+        {
+            _belowActions[_actionButtons[0]] = target.GetPath();
+        }
+        WireActionLines();
+    }
+
+    public override void _Process(double delta)
+    {
+        base._Process(delta);
+        _downloadClock -= delta;
+        if (_downloadClock > 0 || _downloadButton == null || !IsInstanceValid(_downloadButton))
+        {
+            return;
+        }
+        _downloadClock = 0.5;
+        var text = DownloadActions.Label(_item);
+        if (_downloadButton.Text != text)
+        {
+            _downloadButton.Text = text;
+        }
+    }
+
+    // Cast, crew and extras: asked for once, then the page is rebuilt with them.
+    private ItemDetails? _details;
+    private IReadOnlyList<MediaItem> _similar = [];
+    private bool _detailsAsked;
+    private VBoxContainer? _detailHost;
+    private List<MediaRow> _detailRows = [];
 
     public DetailPage(MediaItem item) => _item = item;
 
@@ -36,6 +124,10 @@ public partial class DetailPage : Screen
             if (_item.Playable)
             {
                 hints.Add((Pad.Secondary, Host.Library.IsWatched(_item) ? "Mark unwatched" : "Mark watched"));
+            }
+            else if (HasSeasons && FocusedEpisode() is { Playable: true } ep)
+            {
+                hints.Add((Pad.Secondary, Host.Library.IsWatched(ep) ? "Episode unwatched" : "Episode watched"));
             }
             else if (HasSeasons && CurrentSeason is { } season)
             {
@@ -57,11 +149,13 @@ public partial class DetailPage : Screen
     protected override void Build()
     {
         _first = null;
+        _downloadButton = null;
+        _belowActions.Clear();
         _strip = null;
         _episodes = null;
         var lib = Host.Library;
         var col = Column(Desktop ? 16 : 22);
-        AddChild(Scroller(col));
+        AddChild(Faded(Scroller(col)));
 
         var top = new HBoxContainer();
         top.AddThemeConstantOverride("separation", Desktop ? 26 : 34);
@@ -101,14 +195,17 @@ public partial class DetailPage : Screen
         meta.AddRange(_item.Genres);
         info.AddChild(UiTheme.Label(string.Join("  ·  ", meta), UiTheme.SmallSize + 2, UiTheme.Dim, wrap: true));
         info.AddChild(UiTheme.Label("From " + _item.SourceName, UiTheme.SmallSize, UiTheme.Dim));
-        if (_item.Overview is { } o)
+        if (Spoilers.Overview(_item) is { } o)
         {
             var ov = UiTheme.Label(o, UiTheme.FontSize - 2, UiTheme.Text, wrap: true);
             ov.CustomMinimumSize = new Vector2(360, 0);
             info.AddChild(ov);
         }
-        var actions = new HBoxContainer();
-        actions.AddThemeConstantOverride("separation", 14);
+        // Wraps onto a second line when the buttons don't fit (1280x800 with long labels).
+        var actions = new HFlowContainer();
+        actions.AddThemeConstantOverride("h_separation", 14);
+        actions.AddThemeConstantOverride("v_separation", 12);
+        actions.SortChildren += () => Callable.From(WireActionLines).CallDeferred();
         info.AddChild(actions);
         var buttons = new List<Control>();
         void Act(string label, Action a, string help)
@@ -138,6 +235,11 @@ public partial class DetailPage : Screen
             }
             var watched = lib.IsWatched(_item);
             Act(watched ? "Mark unwatched" : "Mark watched", ToggleWatched, $"{_item.Title}: mark {(watched ? "unwatched" : "watched")}");
+            if (DownloadActions.CanDownload(_item))
+            {
+                Act(DownloadActions.Label(_item), () => DownloadActions.Press(_item), $"{_item.Title}: download");
+                _downloadButton = (Button)buttons[^1];
+            }
         }
         else if (children.Count > 0)
         {
@@ -150,10 +252,22 @@ public partial class DetailPage : Screen
                 label = $"▶  {verb} {EpisodeCode(next) ?? next.Title}";
             }
             Act(label, () => MediaActions.PlayContainer(_item), $"{_item.Title}: play");
-            if (music)
+            if (music || children.Count(c => c.Playable) > 2)
             {
                 Act("Shuffle", () => MediaActions.PlayContainer(_item, shuffle: true), $"{_item.Title}: shuffle");
             }
+            if (!music && children.Any(DownloadActions.CanDownload))
+            {
+                Act("⤓  Download…", OfferShowDownload, $"{_item.Title}: download");
+            }
+        }
+        if (lib.CanCast(_item))
+        {
+            Act("Play on…", () => App.Push(new CastPage(_item, lib.PositionOf(_item) ?? 0)), $"{_item.Title}: play on another screen (a TV or phone app)");
+        }
+        if (_details?.Trailer is { } trailer)
+        {
+            Act("▶  Trailer", () => MediaActions.PlayExtra(_item, trailer), $"{_item.Title}: trailer");
         }
         if (Listable)
         {
@@ -164,7 +278,14 @@ public partial class DetailPage : Screen
         Focus.Row(buttons);
         _first = buttons.FirstOrDefault();
         _actionButtons = buttons;
+        AddTrivia(info);
+        if (_item.Kind == MediaKind.Show)
+        {
+            AddLeftOff(info);
+        }
 
+        _detailRows = [];
+        _detailHost = Column(Desktop ? 16 : 22);
         if (HasSeasons)
         {
             BuildSeasons(col, buttons);
@@ -192,7 +313,204 @@ public partial class DetailPage : Screen
             {
                 b.FocusNeighborBottom = rows[0].GetPath();
             }
+            _belowActions[buttons[0]] = rows[0].GetPath();
         }
+        col.AddChild(_detailHost);
+        if (_details != null || _similar.Count > 0)
+        {
+            FillDetails();
+        }
+        else
+        {
+            LoadDetails();
+        }
+    }
+
+    // ---- trivia ----
+
+    /// <summary>A small "Did you know?" box under the buttons, filled in when Wikipedia has something.</summary>
+    private async void AddTrivia(VBoxContainer info)
+    {
+        if (!Lightcone.Host.Library.Trivia.Applies(_item) || !Host.Settings.Trivia)
+        {
+            return;
+        }
+        var host = new VBoxContainer { Visible = false };
+        info.AddChild(host);
+        Lightcone.Host.Library.TriviaFact? fact = null;
+        try
+        {
+            fact = await Host.Trivia.GetAsync(_item);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"trivia for {_item.Id}: {e.Message}");
+        }
+        if (fact == null || !IsInstanceValid(host))
+        {
+            return;
+        }
+        var box = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
+        box.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.Panel with { A = 0.85f }, 1, 10, UiTheme.Line));
+        var inner = new VBoxContainer();
+        inner.AddThemeConstantOverride("separation", 4);
+        var margin = new MarginContainer();
+        foreach (var (side, v) in new[] { ("left", 14), ("right", 14), ("top", 10), ("bottom", 10) })
+        {
+            margin.AddThemeConstantOverride($"margin_{side}", v);
+        }
+        margin.AddChild(inner);
+        box.AddChild(margin);
+        var head = UiTheme.Label(UiTheme.Mono ? Loc.Upper("Did you know?") : "Did you know?", UiTheme.SmallSize, UiTheme.AccentText);
+        inner.AddChild(head);
+        var text = UiTheme.Label(fact.Text, UiTheme.SmallSize + 1, UiTheme.Text, wrap: true);
+        text.MaxLinesVisible = 3;
+        text.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        text.AutoTranslateMode = AutoTranslateModeEnum.Disabled;
+        inner.AddChild(text);
+        inner.AddChild(UiTheme.Label("From " + fact.Source, UiTheme.SmallSize - 1, UiTheme.Dim));
+        host.AddChild(new Control { CustomMinimumSize = new Vector2(0, 2) });
+        host.AddChild(box);
+        host.Visible = true;
+    }
+
+    // ---- cast, crew and extras ----
+
+    private bool HasDetails => _item.Kind is MediaKind.Movie or MediaKind.Show or MediaKind.Episode;
+
+    private async void LoadDetails()
+    {
+        if (_detailsAsked || !HasDetails)
+        {
+            return;
+        }
+        _detailsAsked = true;
+        // Shows and movies list similar titles straight away (from the library), then the server's picks.
+        if (_item.Kind is MediaKind.Movie or MediaKind.Show)
+        {
+            _similar = Host.Library.SimilarInLibrary(_item);
+        }
+        var similar = _item.Kind is MediaKind.Movie or MediaKind.Show ? Host.Library.SimilarAsync(_item) : Task.FromResult<IReadOnlyList<MediaItem>>([]);
+        ItemDetails? details = null;
+        try
+        {
+            details = await Host.Library.DetailsAsync(_item);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"details of {_item.Id}: {e.Message}");
+        }
+        IReadOnlyList<MediaItem> more = [];
+        try
+        {
+            more = await similar;
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"similar to {_item.Id}: {e.Message}");
+        }
+        if (!IsInstanceValid(this))
+        {
+            return;
+        }
+        var changed = false;
+        if (details != null && (details.People.Count > 0 || details.Extras.Count > 0))
+        {
+            _details = details;
+            changed = true;
+        }
+        if (more.Count > 0 && !more.Select(m => m.Id).SequenceEqual(_similar.Select(m => m.Id)))
+        {
+            _similar = more;
+            changed = true;
+        }
+        if (changed || _similar.Count > 0)
+        {
+            Rebuild();
+        }
+    }
+
+    /// <summary>Stand-in tile items for people: square photo, name, part or job.</summary>
+    private static MediaItem PersonItem(Person p) => new()
+    {
+        Id = $"person:{p.SourceId}:{p.Key}",
+        Title = p.Name,
+        Subtitle = p.Credit,
+        Kind = MediaKind.Artist,
+        PosterUrl = p.PhotoUrl,
+        SourceId = p.SourceId,
+        SourceName = "",
+    };
+
+    private MediaItem ExtraItem(Extra x) => new()
+    {
+        Id = $"extra:{_item.Id}:{x.Title}",
+        Title = x.Title,
+        Subtitle = x.Duration is { } d ? $"{x.Kind}  ·  {MediaItem.FormatDuration(d)}" : x.Kind,
+        Kind = MediaKind.Movie,
+        PosterUrl = x.ThumbUrl ?? _item.PosterUrl,
+        Poster = x.ThumbUrl == null ? _item.Poster : null,
+        SourceId = _item.SourceId,
+        SourceName = _item.SourceName,
+    };
+
+    private void FillDetails()
+    {
+        if (_detailHost == null)
+        {
+            return;
+        }
+        var lib = Host.Library;
+        if (_details?.People.Count > 0)
+        {
+            var people = _details.People;
+            var items = people.Select(PersonItem).ToList();
+            var row = new MediaRow(new HomeRow("cast", "Cast & crew", items), lib, Desktop, it => App.Push(new PersonPage(people[items.IndexOf(it)])), scale: 0.72f);
+            _detailHost.AddChild(row);
+            _detailRows.Add(row);
+        }
+        if (_details?.Extras.Count > 0)
+        {
+            var extras = _details.Extras;
+            var items = extras.Select(ExtraItem).ToList();
+            var row = new MediaRow(new HomeRow("extras", extras.Count == 1 && extras[0].IsTrailer ? "Trailer" : "Trailers & extras", items, Wide: true), lib, Desktop,
+                it => MediaActions.PlayExtra(_item, extras[items.IndexOf(it)]), scale: 0.8f);
+            _detailHost.AddChild(row);
+            _detailRows.Add(row);
+        }
+        if (_similar.Count > 0)
+        {
+            var row = new MediaRow(new HomeRow("similar", "More like this", _similar), lib, Desktop, MediaActions.Open, scale: 0.85f);
+            _detailHost.AddChild(row);
+            _detailRows.Add(row);
+        }
+        LinkDetails();
+    }
+
+    /// <summary>Up / down between the rows above (actions or the episode list) and the cast and extras rows.</summary>
+    private void LinkDetails()
+    {
+        if (_detailRows.Count == 0)
+        {
+            return;
+        }
+        Control? above = (_episodes != null ? _episodes.GetChildren().OfType<ListRow>().LastOrDefault() : LastListRow()) ?? _actionButtons.FirstOrDefault();
+        MediaRow.LinkRows(_detailRows, above);
+        var first = _detailRows[0].Tiles[0];
+        if (above is ListRow lastRow)
+        {
+            lastRow.FocusNeighborBottom = first.GetPath();
+        }
+        else
+        {
+            ActionsDownTo(first);
+        }
+    }
+
+    /// <summary>The last episode / track row of a list without seasons.</summary>
+    private ListRow? LastListRow()
+    {
+        return FindChildren("*", "", true, false).OfType<ListRow>().LastOrDefault();
     }
 
     /// <summary>A collection: its titles as a poster grid, plus rename / delete for one made here.</summary>
@@ -245,7 +563,7 @@ public partial class DetailPage : Screen
         var tiles = new List<Control>();
         foreach (var m in members)
         {
-            var tile = new PosterTile(m, shape, PosterTile.ProgressOf(lib, m), Desktop, MediaActions.Open);
+            var tile = new PosterTile(m, shape, PosterTile.ProgressOf(lib, m), Desktop, MediaActions.Open, FillScale());
             grid.AddChild(tile);
             tiles.Add(tile);
         }
@@ -255,6 +573,10 @@ public partial class DetailPage : Screen
         {
             b.FocusNeighborBottom = tiles[0].GetPath();
         }
+        if (buttons.Count > 0)
+        {
+            _belowActions[buttons[0]] = tiles[0].GetPath();
+        }
         for (var i = 0; i < Math.Min(columns, tiles.Count); i++)
         {
             if (buttons.Count > 0)
@@ -262,6 +584,35 @@ public partial class DetailPage : Screen
                 tiles[i].FocusNeighborTop = buttons[0].GetPath();
             }
         }
+    }
+
+    /// <summary>"Where you left off": the last episode watched before the next one, and what happened in it.</summary>
+    private void AddLeftOff(VBoxContainer info)
+    {
+        var lib = Host.Library;
+        if (lib.NextToPlay(_item) is not { } next || lib.PositionOf(next) != null || lib.PreviousEpisode(next) is not { } prev || !lib.IsWatched(prev))
+        {
+            return;
+        }
+        var panel = new PanelContainer();
+        var box = UiTheme.Box(UiTheme.PanelHi with { A = 0.6f }, 1, 12, UiTheme.Line);
+        box.ContentMarginLeft = box.ContentMarginRight = 14;
+        box.ContentMarginTop = box.ContentMarginBottom = 10;
+        panel.AddThemeStyleboxOverride("panel", box);
+        var col = Column(4);
+        panel.AddChild(col);
+        var when = lib.LastViewed(prev) is { } at ? "  ·  " + RecapPage.Ago(at).ToUpperInvariant() : "";
+        col.AddChild(UiTheme.Label("WHERE YOU LEFT OFF" + when, UiTheme.SmallSize, UiTheme.AccentText));
+        var code = RecapPage.Code(prev);
+        col.AddChild(UiTheme.Label(code != null ? $"{code}  ·  {prev.Title}" : prev.Title, UiTheme.FontSize - 1, UiTheme.Text, wrap: true));
+        if (prev.Overview is { Length: > 0 } o)
+        {
+            var ov = UiTheme.Label(o.ReplaceLineEndings(" "), UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true);
+            ov.MaxLinesVisible = 3;
+            ov.CustomMinimumSize = new Vector2(360, 0);
+            col.AddChild(ov);
+        }
+        info.AddChild(panel);
     }
 
     // ---- shows: seasons ----
@@ -321,6 +672,10 @@ public partial class DetailPage : Screen
             {
                 b.FocusNeighborBottom = SelectedTile()!.GetPath();
             }
+            if (buttons.Count > 0)
+            {
+                _belowActions[buttons[0]] = SelectedTile()!.GetPath();
+            }
         }
         _episodes = Column(Desktop ? 8 : 10);
         col.AddChild(_episodes);
@@ -371,10 +726,7 @@ public partial class DetailPage : Screen
             if (SelectedTile() is { } tile)
             {
                 _strip.Reveal(tile);
-                foreach (var b in _actionButtons)
-                {
-                    b.FocusNeighborBottom = tile.GetPath();
-                }
+                ActionsDownTo(tile);
             }
         }
         FillEpisodes();
@@ -475,13 +827,14 @@ public partial class DetailPage : Screen
             var status = watched ? "✓  Watched" : progress is { } p && e.Duration is { } d ? $"{MediaItem.FormatDuration(d * (1 - p))} left" : e.DurationText;
             var label = e.Index is { } n ? $"{n}.  {e.Title}" : e.Title;
             var art = new PosterArt(e, thumb, progress, 8, showTitle: false) { Badge = watched ? "✓" : null };
-            var detail = e.Overview is { } o ? o.ReplaceLineEndings(" ") : "";
+            var detail = Spoilers.Overview(e) is { } o ? o.ReplaceLineEndings(" ") : Spoilers.Hidden(e) ? "Summary hidden until you watch it." : "";
             var row = new ListRow(label, detail, status, watched ? UiTheme.Good : UiTheme.Dim, art,
                 onPress: () => MediaActions.Play(e), help: $"{e.Title}: play")
             {
                 CustomMinimumSize = new Vector2(0, thumb.Y + 18),
             };
             row.SetMeta(PosterTile.NoHelp, true);
+            row.SetMeta(EpisodeMeta, e.Id);
             _episodes.AddChild(row);
             rows.Add(row);
         }
@@ -506,11 +859,58 @@ public partial class DetailPage : Screen
         }
         else
         {
-            foreach (var b in _actionButtons)
-            {
-                b.FocusNeighborBottom = down.GetPath();
-            }
+            ActionsDownTo(down);
         }
+        LinkDetails();
+    }
+
+    /// <summary>A show's Download: the next few episodes to watch, or the season on screen.</summary>
+    private void OfferShowDownload()
+    {
+        var options = new List<(string, Action)>();
+        var next = DownloadActions.NextEpisodes(_item, 5);
+        if (next.Count > 0)
+        {
+            options.Add(($"The next {next.Count} to watch (from {RecapPage.Code(next[0]) ?? next[0].Title})", () => DownloadActions.Offer(next, _item.Title)));
+        }
+        if (CurrentSeason is { } season && season.Episodes.Count(e => e.Playable) > 0)
+        {
+            var eps = season.Episodes.Where(e => e.Playable).ToList();
+            options.Add(($"All of {season.Title} ({eps.Count} episodes)", () => DownloadActions.Offer(eps, $"{_item.Title}: {season.Title}")));
+        }
+        options.Add(("See downloads", () => App.Push(new DownloadsPage())));
+        options.Add(("Cancel", () => { }));
+        App.Push(new ChoicePage($"Download {_item.Title} to watch offline:", [.. options]));
+    }
+
+    private const string EpisodeMeta = "lightcone_episode";
+
+    /// <summary>The episode whose row has focus, if any.</summary>
+    private MediaItem? FocusedEpisode()
+    {
+        if (GetViewport().GuiGetFocusOwner() is not { } c || !c.HasMeta(EpisodeMeta) || !IsAncestorOf(c))
+        {
+            return null;
+        }
+        var id = c.GetMeta(EpisodeMeta).AsString();
+        return CurrentSeason?.Episodes.FirstOrDefault(e => e.Id == id);
+    }
+
+    private void ToggleEpisodeWatched(MediaItem e)
+    {
+        var lib = Host.Library;
+        var watched = !lib.IsWatched(e);
+        lib.SetWatched(e, watched);
+        var name = RecapPage.Code(e) ?? e.Title;
+        App.Toast(watched ? $"Marked {name} watched" : $"Marked {name} unwatched");
+        var id = e.Id;
+        Rebuild();
+        // Stay on the same episode after the rebuild.
+        if (_episodes?.GetChildren().OfType<Control>().FirstOrDefault(r => r.HasMeta(EpisodeMeta) && r.GetMeta(EpisodeMeta).AsString() == id) is { } row)
+        {
+            row.CallDeferred(Control.MethodName.GrabFocus);
+        }
+        App.UpdateChrome();
     }
 
     private void ToggleSeasonWatched()
@@ -593,6 +993,10 @@ public partial class DetailPage : Screen
         if (action == Pad.Secondary && _item.Playable)
         {
             ToggleWatched();
+        }
+        else if (action == Pad.Secondary && HasSeasons && FocusedEpisode() is { Playable: true } ep)
+        {
+            ToggleEpisodeWatched(ep);
         }
         else if (action == Pad.Secondary && HasSeasons)
         {

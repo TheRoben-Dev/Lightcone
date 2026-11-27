@@ -3,14 +3,20 @@ using Godot;
 using Lightcone.App.Playback;
 using Lightcone.App.Ui;
 using Lightcone.Host.Library;
+using Lightcone.Playback;
 
 namespace Lightcone.App.Screens;
 
 /// <summary>
 /// The full-screen player, shared by both modes. Controller: A pause, B stop, triggers and
-/// left/right seek, X (or Menu) audio and subtitles, Y skip intro/credits or info. Desktop: a
-/// mouse control bar (play, seek bar, tracks, mini player, full screen) and Space / arrows / F.
-/// Touch: tap shows the controls, the seek bar drags.
+/// left/right seek, X (or Menu) options (audio, subtitles, speed, delays, sleep timer), Y skip
+/// intro/credits or info. Desktop: a mouse control bar (play, seek bar, options, mini player,
+/// full screen) and Space / arrows / F. Touch: tap shows the controls, the seek bar drags.
+/// Near an episode's end an Up next card counts down to the next one (A plays it now, B lets the
+/// credits run); after a few episodes in a row with no press it asks "Still watching?" instead.
+/// Chapters: ticks on the seek bar; D-pad up/down (with the controls showing), LB / RB, or
+/// Page Up / Page Down move between them. Seeking or hovering the bar shows a thumbnail of that
+/// moment when the server has them (Plex preview thumbnails, Jellyfin trickplay).
 /// </summary>
 public partial class PlayerScreen : Screen
 {
@@ -22,13 +28,29 @@ public partial class PlayerScreen : Screen
     private Label _subtitle = null!;
     private Label _time = null!;
     private Label _info = null!;
+    private Label _status = null!;
+    private UpNextCard _card = null!;
+    private string? _cardDismissedFor;
+    private double _countdown = -1;
+    private bool _askStill;
     private Label _pausedIcon = null!;
+    private ProjectorIntro _intro = null!;
     private Button _skip = null!;
     private Button? _playButton;
     private Control? _audioArt;
     private double _osdLeft = OsdSeconds;
     private bool _showInfo;
     private MediaItem? _shownItem;
+    private Label? _hints;
+    private PanelContainer _preview = null!;
+    private TextureRect _previewPic = null!;
+    private Label _previewTime = null!;
+    private double _previewAt = -1;
+    private int _previewAsk;
+    private byte[]? _tileBytes;
+    private Image? _tileImage;
+    private Button? _prevChapter;
+    private Button? _nextChapter;
 
     public override bool FullScreen => true;
 
@@ -43,7 +65,7 @@ public partial class PlayerScreen : Screen
         {
             AddThemeConstantOverride($"margin_{side}", 0);
         }
-        var root = new Control { MouseFilter = MouseFilterEnum.Stop, FocusMode = FocusModeEnum.All, TooltipText = "Player" };
+        var root = new Control { MouseFilter = MouseFilterEnum.Stop, FocusMode = FocusModeEnum.All, Name = "Player" };  // no tooltip: it popped up under the idle pointer mid-movie
         root.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         root.GuiInput += OnPointer;
         AddChild(root);
@@ -60,6 +82,9 @@ public partial class PlayerScreen : Screen
         _pausedIcon.GrowHorizontal = GrowDirection.Both;
         _pausedIcon.GrowVertical = GrowDirection.Both;
         root.AddChild(_pausedIcon);
+
+        _intro = new ProjectorIntro();
+        root.AddChild(_intro);
 
         _osd = new Control { MouseFilter = MouseFilterEnum.Ignore };
         _osd.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -100,6 +125,9 @@ public partial class PlayerScreen : Screen
         bottomBox.AddChild(timeRow);
         _time = UiTheme.Label("", UiTheme.SmallSize + 2, Colors.White);
         timeRow.AddChild(_time);
+        _status = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.75f));
+        _status.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        timeRow.AddChild(_status);
         timeRow.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
         _skip = new Button { Text = "Skip intro", Visible = false, FocusMode = FocusModeEnum.None, TooltipText = "Skip" };
         _skip.Pressed += Svc.SkipMarker;
@@ -120,10 +148,19 @@ public partial class PlayerScreen : Screen
         }
         else
         {
-            var hints = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.8f));
-            hints.Text = $"{Pad.Glyph(Pad.Accept)} Pause    {Pad.Glyph(Pad.SeekBack)} / {Pad.Glyph(Pad.SeekForward)} Seek    {Pad.Glyph(Pad.Tertiary)} Audio & subtitles    {Pad.Glyph(Pad.Secondary)} Skip / info    {Pad.Glyph(Pad.Back)} {(Svc.HasVideo ? "Stop" : "Back (keeps playing)")}";
-            bottomBox.AddChild(hints);
+            _hints = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.8f));
+            bottomBox.AddChild(_hints);
         }
+        _preview = BuildPreview();
+        _osd.AddChild(_preview);
+        _card = new UpNextCard(Desktop, PlayNextNow, DismissCard);
+        _card.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);
+        _card.GrowHorizontal = GrowDirection.Begin;
+        _card.GrowVertical = GrowDirection.Begin;
+        _card.OffsetRight = -40;
+        _card.OffsetBottom = Desktop ? -150 : -130;
+        _card.Visible = false;
+        root.AddChild(_card);
         Svc.Changed += OnChanged;
         Svc.Finished += OnFinished;
         TreeExiting += () =>
@@ -152,8 +189,10 @@ public partial class PlayerScreen : Screen
         B($"⟲ {Host.Settings.SeekBack}", $"Back {Host.Settings.SeekBack} seconds (Left, hold to go faster)", () => Svc.Step(-1));
         _playButton = B("❚❚", "Play / pause (Space)", Svc.TogglePause);
         B($"{Host.Settings.SeekForward} ⟳", $"Forward {Host.Settings.SeekForward} seconds (Right, hold to go faster)", () => Svc.Step(1));
+        _prevChapter = B("⏮", "Previous chapter (Page Up)", () => StepChapter(-1));
+        _nextChapter = B("⏭", "Next chapter (Page Down)", () => StepChapter(1));
         row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
-        B("Audio & subtitles", "Audio and subtitle tracks (A)", () => App.Push(new TrackPickerPage()));
+        B("Options", "Audio, subtitles, speed, timing, sleep timer, Night mode, Clear voices and chapters (A)", () => App.Push(new TrackPickerPage()));
         B("Mini player", "Keep playing in the mini player while you browse", App.MinimizePlayer);
         B("Full screen", "Full screen (F)", ToggleFullscreen);
         B("✕", "Stop (Esc)", () =>
@@ -193,6 +232,11 @@ public partial class PlayerScreen : Screen
         if (item != _shownItem && _audioArt != null)
         {
             _shownItem = item;
+            _previewPic.Texture = null;
+            _previewAt = -1;
+            _tileBytes = null;
+            _tileImage = null;
+            _ = Svc.Preview?.FrameAsync(0);  // start fetching thumbnails before the first seek
             foreach (var c in _audioArt.GetChildren())
             {
                 c.QueueFree();
@@ -210,6 +254,15 @@ public partial class PlayerScreen : Screen
             }
         }
         _audioArt!.Visible = !Svc.HasVideo;
+        if (_hints != null)
+        {
+            var chapters = Svc.Chapters.Count > 1 ? "    ↑ / ↓ Chapters" : "";
+            _hints.Text = $"{Pad.Glyph(Pad.Accept)} Pause    {Pad.Glyph(Pad.SeekBack)} / {Pad.Glyph(Pad.SeekForward)} Seek{chapters}    {Pad.Glyph(Pad.Tertiary)} Options    {Pad.Glyph(Pad.Secondary)} Skip / info    {Pad.Glyph(Pad.Back)} {(Svc.HasVideo ? "Stop" : "Back (keeps playing)")}";
+        }
+        if (_prevChapter != null && _nextChapter != null)
+        {
+            _prevChapter.Visible = _nextChapter.Visible = Svc.Chapters.Count > 1;
+        }
         if (item != null)
         {
             var isEpisode = item.Kind is MediaKind.Episode or MediaKind.Track;
@@ -221,21 +274,254 @@ public partial class PlayerScreen : Screen
 
     private void OnFinished(MediaItem done)
     {
-        // Episodes and tracks continue with the next one; anything else closes the player.
-        var next = done.ParentId == null ? null :
-            Host.Library.Children(done.ParentId).SkipWhile(c => c.Id != done.Id).Skip(1).FirstOrDefault(c => c.Playable);
-        if (next != null)
+        // The sleep timer set to "end of this episode" stops here.
+        if (Svc.SleepEndsHere())
         {
-            AppLog.Info($"up next: {next.Id}");
-            Svc.Play(next, fromStart: true);
+            CloseAfterEnd();
+            return;
+        }
+        var next = Svc.UpNextFor(done);
+        if (next != null && done.Kind == MediaKind.Track)
+        {
+            Svc.PlayNext(auto: false);  // albums play through
+            return;
+        }
+        if (next != null && done.Kind == MediaKind.Episode && Host.Settings.UpNextSeconds > 0)
+        {
+            if (_askStill || Svc.ShouldAskStillWatching)
+            {
+                // Stay on the last frame with the question up; nothing plays until someone answers.
+                _askStill = true;
+                ShowCard(next);
+                return;
+            }
+            Svc.PlayNext(auto: true);
             App.Toast("Up next: " + next.Title);
             return;
         }
+        CloseAfterEnd();
+    }
+
+    private void CloseAfterEnd()
+    {
         Svc.Stop();
         if (App.Top == this)
         {
             App.Pop();
         }
+    }
+
+    // ---- Up next ----
+
+    /// <summary>
+    /// Where the Up next card appears: at the start of the final credits when the server marks
+    /// them (a credits marker that runs to the end; one followed by more of the episode is just a
+    /// Skip credits button), else 20 seconds before the end. Null when there's nothing next.
+    /// </summary>
+    private double? CardStart(MediaItem cur, double duration)
+    {
+        var final = Host.Library.MarkersOf(cur).Where(m => m.Kind == Marker.Credits && m.End >= duration - 30).OrderBy(m => m.Start).FirstOrDefault();
+        return final?.Start ?? duration - 20;
+    }
+
+    private void UpdateCard(double delta)
+    {
+        var cur = Svc.Current;
+        MediaItem? next = null;
+        var show = false;
+        if (cur is { Kind: MediaKind.Episode } && Svc.Duration is { } d and > 60 && !Svc.SleepAtEnd && Host.Settings.UpNextSeconds > 0
+            && (next = Svc.UpNextFor(cur)) != null)
+        {
+            show = _forceCard || _askStill || (_cardDismissedFor != cur.Id && Svc.Position >= CardStart(cur, d) && Svc.Position < d - 0.5);
+        }
+        if (!show || next == null)
+        {
+            if (_card.Visible)
+            {
+                _card.Visible = false;
+                _countdown = -1;
+            }
+            return;
+        }
+        if (!_card.Visible || _card.Item?.Id != next.Id)
+        {
+            _askStill = _askStill || Svc.ShouldAskStillWatching;
+            ShowCard(next);
+        }
+        if (_askStill)
+        {
+            _card.SetStatus("Are you still watching?", null);
+            return;
+        }
+        if (!Svc.Paused)
+        {
+            _countdown -= delta;
+        }
+        var total = Host.Settings.UpNextSeconds;
+        if (_countdown <= 0)
+        {
+            PlayNextNow(auto: true);
+            return;
+        }
+        _card.SetStatus(Svc.Paused ? "Paused" : $"Plays in {Math.Ceiling(_countdown):0} s", 1 - _countdown / total);
+    }
+
+    private void ShowCard(MediaItem next)
+    {
+        _countdown = Host.Settings.UpNextSeconds;
+        _card.Fill(next, _askStill);
+        _card.Visible = true;
+        AppLog.Info($"up next card: {next.Id}{(_askStill ? " (still watching?)" : "")}");
+    }
+
+    private void PlayNextNow() => PlayNextNow(auto: false);
+
+    private bool _forceCard;
+
+    /// <summary>Smoke test: shows the card now (the sample streams can't seek to their credits).</summary>
+    internal void ForceUpNext(bool askStill)
+    {
+        _forceCard = true;
+        _askStill = askStill;
+        _card.Visible = false;
+    }
+
+    private void PlayNextNow(bool auto)
+    {
+        _forceCard = false;
+        _card.Visible = false;
+        _countdown = -1;
+        _askStill = false;
+        if (Svc.PlayNext(auto) is { } next && auto)
+        {
+            App.Toast("Up next: " + next.Title);
+        }
+    }
+
+    /// <summary>B or Watch credits on the card: let this one run out. "Still watching?" + B stops.</summary>
+    private void DismissCard()
+    {
+        _forceCard = false;
+        if (_askStill)
+        {
+            _askStill = false;
+            _card.Visible = false;
+            CloseAfterEnd();
+            return;
+        }
+        _cardDismissedFor = Svc.Current?.Id;
+        _card.Visible = false;
+        _countdown = -1;
+    }
+
+    // ---- chapters ----
+
+    private void StepChapter(int dir)
+    {
+        if (Svc.StepChapter(dir))
+        {
+            var c = Chapter.At(Svc.Chapters, Svc.DisplayPosition);
+            if (c != null)
+            {
+                App.Toast($"Chapter {c.Index + 1} of {Svc.Chapters.Count}: {c.Title}");
+            }
+        }
+    }
+
+    // ---- seek preview ----
+
+    private PanelContainer BuildPreview()
+    {
+        var panel = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore, Visible = false, TopLevel = false };
+        var box = UiTheme.Box(new Color(0, 0, 0, 0.8f), 1, 10, new Color(1, 1, 1, 0.3f));
+        box.ContentMarginLeft = box.ContentMarginRight = box.ContentMarginTop = box.ContentMarginBottom = 4;
+        panel.AddThemeStyleboxOverride("panel", box);
+        var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+        col.AddThemeConstantOverride("separation", 4);
+        panel.AddChild(col);
+        var w = Desktop ? 256 : 300;
+        _previewPic = new TextureRect
+        {
+            CustomMinimumSize = new Vector2(w, w * 9 / 16f),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = MouseFilterEnum.Ignore,
+        };
+        col.AddChild(_previewPic);
+        _previewTime = UiTheme.Label("", UiTheme.SmallSize + 1, Colors.White);
+        _previewTime.HorizontalAlignment = HorizontalAlignment.Center;
+        _previewTime.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        _previewTime.CustomMinimumSize = new Vector2(w, 0);
+        col.AddChild(_previewTime);
+        return panel;
+    }
+
+    /// <summary>Thumbnail and time over the bar while seeking (or the mouse hovers the bar).</summary>
+    private void UpdatePreview(double? duration)
+    {
+        var preview = Svc.Preview;
+        var hover = _bar.Hover;
+        var seeking = Math.Abs(Svc.DisplayPosition - Svc.Position) > 1;
+        if (duration is not > 0 || !(hover >= 0 || (seeking && preview != null)))
+        {
+            _preview.Visible = false;
+            return;
+        }
+        var at = hover >= 0 ? hover * duration.Value : Svc.DisplayPosition;
+        var chapter = Chapter.At(Svc.Chapters, at);
+        _previewTime.Text = MediaItem.FormatDuration(at, true) + (chapter != null && Svc.Chapters.Count > 1 ? "  ·  " + chapter.Title : "");
+        _previewPic.Visible = preview != null && _previewPic.Texture != null;
+        if (preview != null && Math.Abs(at - _previewAt) >= 1)
+        {
+            _previewAt = at;
+            LoadPreview(preview, at);
+        }
+        _preview.Visible = true;
+        _preview.ResetSize();
+        var bar = _bar.GetGlobalRect();
+        var size = _preview.Size;
+        var x = bar.Position.X + bar.Size.X * (float)(at / duration.Value) - size.X / 2;
+        _preview.GlobalPosition = new Vector2(Math.Clamp(x, bar.Position.X, bar.End.X - size.X), bar.Position.Y - size.Y - 14);
+    }
+
+    private async void LoadPreview(SeekPreview preview, double at)
+    {
+        var ask = ++_previewAsk;
+        PreviewFrame? frame;
+        try
+        {
+            frame = await preview.FrameAsync(at);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"seek preview: {e.Message}");
+            return;
+        }
+        if (!IsInstanceValid(this) || ask != _previewAsk || frame == null)
+        {
+            return;
+        }
+        if (!ReferenceEquals(frame.Image, _tileBytes))
+        {
+            var img = new Image();
+            if (img.LoadJpgFromBuffer(frame.Image) != Error.Ok)
+            {
+                return;
+            }
+            _tileBytes = frame.Image;
+            _tileImage = img;
+        }
+        var image = _tileImage!;
+        if (frame.Width > 0)
+        {
+            var r = new Rect2I(frame.X, frame.Y, Math.Min(frame.Width, image.GetWidth() - frame.X), Math.Min(frame.Height, image.GetHeight() - frame.Y));
+            if (r.Size.X <= 0 || r.Size.Y <= 0)
+            {
+                return;
+            }
+            image = image.GetRegion(r);
+        }
+        _previewPic.Texture = ImageTexture.CreateFromImage(image);
     }
 
     /// <summary>Shows the controls for a few seconds.</summary>
@@ -248,9 +534,13 @@ public partial class PlayerScreen : Screen
         {
             _osdLeft -= delta;
         }
-        var show = _osdLeft > 0 || paused || !Svc.HasVideo || _showInfo;
+        var show = (_osdLeft > 0 || paused || !Svc.HasVideo || _showInfo || (_card.Visible && _askStill)) && !_intro.Visible;
         var target = show ? 1f : 0f;
         _osd.Modulate = _osd.Modulate with { A = Mathf.MoveToward(_osd.Modulate.A, target, (float)delta * 5f) };
+        // VRR: match the video's rate only while nothing is on screen and nobody is pressing anything;
+        // any input lifts it back to the display's full rate at once.
+        Svc.Paced = !show && _osd.Modulate.A <= 0.001f && Svc.HasVideo && Main.Instance.TopOrNull == this
+            && Main.Instance.IdleSeconds > 1.5 && !Main.Instance.ToastShowing && !_intro.Visible && !_skip.Visible && !_card.Visible && !_preview.Visible;
         _pausedIcon.Visible = paused && Svc.Current != null;
         if (Desktop)
         {
@@ -262,8 +552,33 @@ public partial class PlayerScreen : Screen
         var clock = d is > 0 ? _bar.Shown * d.Value : pos;  // the clock rides along with the bar's glide
         _time.Text = d is { } dd ? $"{MediaItem.FormatDuration(clock, true)} / {MediaItem.FormatDuration(dd, true)}" : MediaItem.FormatDuration(pos, true);
         _bar.Markers = Svc.Current is { } cur && d is > 0 ? Host.Library.MarkersOf(cur).Select(m => ((float)(m.Start / d.Value), (float)(m.End / d.Value))).ToList() : [];
+        _bar.Chapters = d is > 0 && Svc.Chapters.Count > 1 ? Svc.Chapters.Skip(1).Select(c => (float)(c.Start / d.Value)).ToList() : [];
+        UpdatePreview(d);
+        UpdateCard(delta);
         var marker = Svc.ActiveMarker;
-        _skip.Visible = marker != null;
+        _skip.Visible = marker != null && !(_card.Visible && Svc.NextInsteadOfCredits != null);
+        var status = new List<string>();
+        if (Math.Abs(Svc.Speed - 1) > 0.001)
+        {
+            status.Add($"{Svc.Speed:0.##}×");
+        }
+        if (Svc.SleepText is { } sleep)
+        {
+            status.Add(sleep);
+        }
+        if (Svc.Chapters.Count > 1 && Chapter.At(Svc.Chapters, pos) is { } chapterNow)
+        {
+            status.Add(chapterNow.Title);
+        }
+        if (Host.Settings.NightMode)
+        {
+            status.Add("Night mode");
+        }
+        if (Host.Settings.ClearVoices)
+        {
+            status.Add("Clear voices");
+        }
+        _status.Text = status.Count > 0 ? "    " + string.Join("  ·  ", status) : "";
         if (marker != null)
         {
             var label = Svc.SkipLabel ?? marker.Label;
@@ -287,7 +602,12 @@ public partial class PlayerScreen : Screen
         {
             return;
         }
-        if (e.IsAction(Pad.Accept) && !e.IsEcho())
+        Svc.NoteInput();
+        if (_card.Visible && e.IsAction(Pad.Accept) && !e.IsEcho())
+        {
+            PlayNextNow();
+        }
+        else if (e.IsAction(Pad.Accept) && !e.IsEcho())
         {
             Svc.TogglePause();
         }
@@ -301,7 +621,19 @@ public partial class PlayerScreen : Screen
         }
         else if (e.IsAction("ui_up") || e.IsAction("ui_down"))
         {
-            // Just show the controls.
+            // The first press shows the controls; with them showing, up / down change chapter.
+            if (_osd.Modulate.A > 0.5f && Svc.Chapters.Count > 1 && !e.IsEcho())
+            {
+                StepChapter(e.IsAction("ui_down") ? 1 : -1);
+            }
+        }
+        else if ((e.IsAction(Pad.TabPrev) || e.IsAction(Pad.TabNext)) && !e.IsEcho())
+        {
+            StepChapter(e.IsAction(Pad.TabNext) ? 1 : -1);
+        }
+        else if (Desktop && e is InputEventKey { Keycode: Key.F, Pressed: true, Echo: false })
+        {
+            ToggleFullscreen();
         }
         else if (e.IsAction(Pad.Menu) || e.IsAction(Pad.Tertiary) || e is InputEventKey { Keycode: Key.A })
         {
@@ -337,6 +669,8 @@ public partial class PlayerScreen : Screen
             case InputEventMouseMotion:
                 Poke();
                 break;
+            case InputEventMouseButton { Pressed: true } when _card.Visible && _askStill:
+                break;  // answer the question with its buttons
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true, DoubleClick: true } when Desktop:
                 ToggleFullscreen();
                 break;
@@ -354,6 +688,12 @@ public partial class PlayerScreen : Screen
     /// <summary>B: video stops (position saved); music keeps playing in the background.</summary>
     public override bool OnBack()
     {
+        Svc.NoteInput();
+        if (_card.Visible)
+        {
+            DismissCard();
+            return true;
+        }
         if (Svc.HasVideo)
         {
             Svc.Stop();
@@ -382,6 +722,12 @@ public partial class SeekBar : Control
     public event Action<float>? Seek;
 
     public IReadOnlyList<(float Start, float End)> Markers { get; set; } = [];
+
+    /// <summary>Where chapters start (after the first), as fractions of the bar.</summary>
+    public IReadOnlyList<float> Chapters { get; set; } = [];
+
+    /// <summary>Where the mouse is over the bar (0–1), or -1.</summary>
+    public float Hover { get; private set; } = -1;
 
     /// <summary>Where the bar is drawn right now (part way through a glide).</summary>
     public float Shown => _shown;
@@ -418,6 +764,7 @@ public partial class SeekBar : Control
     {
         MouseFilter = MouseFilterEnum.Stop;
         MouseDefaultCursorShape = CursorShape.PointingHand;
+        MouseExited += () => Hover = -1;
     }
 
     public override void _Process(double delta)
@@ -455,7 +802,13 @@ public partial class SeekBar : Control
         else if (e is InputEventMouseMotion { ButtonMask: MouseButtonMask.Left } mm)
         {
             Jump(Math.Clamp(mm.Position.X / Size.X, 0, 1));
+            Hover = Math.Clamp(mm.Position.X / Size.X, 0, 1);
             AcceptEvent();
+        }
+        else if (e is InputEventMouseMotion hover)
+        {
+            // Touch screens report emulated mouse motion only while dragging (handled above).
+            Hover = Math.Clamp(hover.Position.X / Size.X, 0, 1);
         }
     }
 
@@ -469,6 +822,11 @@ public partial class SeekBar : Control
             DrawRect(new Rect2(Size.X * s, y, Size.X * (e - s), h), new Color(1, 1, 1, 0.45f));
         }
         DrawRect(new Rect2(0, y, Size.X * _shown, h), UiTheme.Accent);
+        foreach (var c in Chapters)
+        {
+            // A small gap in the bar where each chapter starts.
+            DrawRect(new Rect2(Size.X * c - 1.5f, y - 1, 3, h + 2), new Color(0, 0, 0, 0.7f));
+        }
         DrawCircle(new Vector2(Size.X * _shown, Size.Y / 2), 9, UiTheme.Accent);
     }
 }

@@ -63,7 +63,8 @@ public abstract partial class Screen : MarginContainer
     private (float Tile, float Gap, float Reserve, int Columns) _builtGrid;
 
     private bool WidthChanged() =>
-        UsesWidth && Modulate.A > 0.99f && Columns(AvailableWidth(), _builtGrid.Tile, _builtGrid.Gap, _builtGrid.Reserve) != _builtGrid.Columns;
+        UsesWidth && Modulate.A > 0.99f && (Columns(AvailableWidth(), _builtGrid.Tile, _builtGrid.Gap, _builtGrid.Reserve) != _builtGrid.Columns
+            || Math.Abs(AvailableWidth() - _builtWidth) > 32);
 
     private static int Columns(float width, float tileW, float gap, float reserve) =>
         Math.Max(1, (int)((width - reserve - 16 + gap) / (tileW + gap)));
@@ -98,6 +99,21 @@ public abstract partial class Screen : MarginContainer
         var columns = Columns(_builtWidth, tileW, gap, reserve);
         _builtGrid = (tileW, gap, reserve, columns);
         return columns;
+    }
+
+    /// <summary>
+    /// After <see cref="ColumnsFor"/>: how much to grow the tiles so the columns span the whole
+    /// width instead of leaving a strip on the right (at most a quarter bigger).
+    /// </summary>
+    protected float FillScale()
+    {
+        var (tileW, gap, reserve, columns) = _builtGrid;
+        if (tileW <= 0 || columns <= 0)
+        {
+            return 1;
+        }
+        var fit = (_builtWidth - reserve - 16 + gap) / columns - gap;
+        return Math.Clamp(fit / tileW, 1f, 1.25f);
     }
 
     /// <summary>Clears and rebuilds the page (after data changes), keeping focus near where it was.</summary>
@@ -137,7 +153,8 @@ public abstract partial class Screen : MarginContainer
                 f.Restore(scrolls[i]);
             }
         }
-        if (IsVisibleInTree())
+        // (A page under an open card, rebuilt by a pick on that card, leaves the card its focus.)
+        if (IsVisibleInTree() && !(Main.Instance?.TopOrNull is { IsOverlay: true } top && top != this))
         {
             if (!RefocusIndex(focusedIndex))
             {
@@ -301,12 +318,24 @@ public abstract partial class Screen : MarginContainer
         var gutter = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         gutter.AddThemeConstantOverride("margin_right", 6);
         gutter.AddThemeConstantOverride("margin_left", 4);
-        gutter.AddThemeConstantOverride("margin_top", 4);
-        gutter.AddThemeConstantOverride("margin_bottom", 4);
+        gutter.AddThemeConstantOverride("margin_top", 10);  // the focus pop of the first row isn't clipped
+        gutter.AddThemeConstantOverride("margin_bottom", 24);  // the last row clears the hint bar
         gutter.AddChild(content);
         s.AddChild(gutter);
         s.AddChild(new ScrollFollower());
         return s;
+    }
+
+    /// <summary>A scroller whose top and bottom fade out softly while there's more to scroll to.</summary>
+    protected static Control Faded(ScrollContainer s)
+    {
+        var fade = new EdgeFade(horizontal: false, near: 28, far: 48)
+        {
+            SizeFlagsHorizontal = s.SizeFlagsHorizontal,
+            SizeFlagsVertical = s.SizeFlagsVertical,
+        };
+        fade.AddChild(s);
+        return fade;
     }
 
     /// <summary>
@@ -335,7 +364,7 @@ public abstract partial class Screen : MarginContainer
 
     protected static Control Section(string text)
     {
-        var l = UiTheme.Label(text.ToUpperInvariant(), UiTheme.SmallSize, UiTheme.Dim);
+        var l = UiTheme.Label(Loc.Upper(text), UiTheme.SmallSize, UiTheme.Dim);
         l.CustomMinimumSize = new Vector2(0, 34);
         l.VerticalAlignment = VerticalAlignment.Bottom;
         if (UiTheme.Nightgrid)

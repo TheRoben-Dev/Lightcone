@@ -30,14 +30,38 @@ public partial class SmokeTest : Node
         Step("home-down", () => Tap(JoyButton.DpadDown), tab: "Home");
         Step("home-right", () => Tap(JoyButton.DpadRight), tab: "Home");
         Step("home-stick", () => { Stick(1f, 0f); Stick(0f, 0f); }, tab: "Home");
+        // One controller seen as two joypads (Steam's virtual pad plus the raw device): every
+        // button arrives twice, interleaved or back to back. Each press must still move once.
+        Step("home-twin-pad", () =>
+        {
+            TwinTap(JoyButton.DpadRight, interleaved: true);
+            TwinTap(JoyButton.DpadLeft, interleaved: false);
+            TwinTap(JoyButton.DpadRight, interleaved: true);
+        }, expect: "Afterglow", tab: "Home");
         // Back up to the hero: the page scrolls all the way to the top again.
         Step("home-down-more", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, tab: "Home");
         Step("home-up-top", () => Tap(JoyButton.DpadUp, 3), wait: 0.9, expect: "Play", tab: "Home");
         // Bumpers switch sections.
         Step("movies", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Movies");
-        // Y cycles the sort.
-        Step("movies-sort", () => Tap(JoyButton.Y), wait: 1.0, tab: "Movies");
-        Step("movies-sort-title", () => Tap(JoyButton.Y), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
+        // Y: sort and filter on a card. Unwatched, back to everything, then sort by title.
+        Step("movies-sort", () => Tap(JoyButton.Y), wait: 1.0, expect: "Sort: Title", tab: "Movies");
+        Step("movies-filter-unwatched", () =>
+        {
+            Tap(JoyButton.DpadRight);
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "Show: Unwatched", tab: "Movies");
+        Step("movies-filter-all", () =>
+        {
+            Tap(JoyButton.DpadUp);
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "Show: Everything", tab: "Movies");
+        Step("movies-sort-pick", () =>
+        {
+            Tap(JoyButton.DpadLeft);
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "Sort: Title", tab: "Movies");
+        Step("movies-sort-title", () => Tap(JoyButton.B), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
         Step("movie-detail", () => Tap(JoyButton.A), wait: 1.2, expect: "Play", tab: "Movies");
         // X: on the watchlist (Home gets a Watchlist row). Collections…: start one with this film.
         Step("movie-watchlist", () => Tap(JoyButton.X), wait: 1.0, expect: "Play", tab: "Movies");
@@ -61,10 +85,44 @@ public partial class SmokeTest : Node
         Step("player-pause", () => Tap(JoyButton.A), wait: 1.0);
         Step("player-info", () => Tap(JoyButton.Y), wait: 1.0);
         Step("player-tracks", () => Tap(JoyButton.Start), wait: 1.0);
+        // Options: speed (remembered for this movie) and the sleep timer.
+        Step("player-options-speed", () =>
+        {
+            Tap(JoyButton.DpadDown, 2);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Playback speed");
+        Step("player-options-sleep", () =>
+        {
+            Tap(JoyButton.DpadDown, 3);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Pauses playback");
+        // Night mode and Clear voices: audio filters, kept in Settings.
+        Step("player-options-night", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Evens out the volume");
+        Step("player-options-voices", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Lifts dialogue");
         Step("player-tracks-back", () => Tap(JoyButton.B), wait: 1.0);
         // B stops video and goes back (position saving and Resume are covered by the unit tests:
         // the sample streams play in real time, and resume starts after 30 s).
         Step("player-back", () => Tap(JoyButton.B), wait: 1.2, expect: "Play", tab: "Movies");
+        // Cast & crew below the actions; a person opens their other titles in the library.
+        Step("movie-cast", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, tab: "Movies");
+        Step("movie-person", () => Tap(JoyButton.A), wait: 1.2, tab: "Movies");
+        Step("movie-person-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        Step("movie-extras", () => Tap(JoyButton.DpadDown), wait: 0.8, expect: "Official trailer", tab: "Movies");
+        Step("movie-trailer", () =>
+        {
+            FindFocusable(GetTree().Root, "A Field of Lanterns: trailer")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 2.0, tab: "Movies");
+        Step("movie-trailer-back", () => Tap(JoyButton.B), wait: 1.2, expect: "Trailer", tab: "Movies");
+        Step("movie-play-focus", () => FindFocusable(GetTree().Root, "A Field of Lanterns: play")?.GrabFocus(), wait: 0.5, expect: "Play", tab: "Movies");
         Step("detail-back", () => Tap(JoyButton.B), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
         // X in Movies: collections (yours, the source's, automatic ones).
         Step("movies-collections", () => Tap(JoyButton.X), wait: 1.2, expect: "Faves", tab: "Movies");
@@ -87,9 +145,82 @@ public partial class SmokeTest : Node
         Step("show-episodes", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
         // RT / LT switch season from the episode list too.
         Step("show-season-trigger", () => Trigger(JoyAxis.TriggerRight), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
-        // Y marks the whole season watched.
-        Step("show-season-watched", () => Tap(JoyButton.Y), wait: 1.0, tab: "Shows");
+        // Y on the season's mark button marks the whole season watched...
+        Step("show-season-watched", () => { Tap(JoyButton.DpadUp); Tap(JoyButton.Y); }, wait: 1.0, expect: "Mark season unwatched", tab: "Shows");
+        // ...and Y on an episode row marks just that episode (here: back to unwatched).
+        Step("show-episode-unwatched", () => { Tap(JoyButton.DpadDown); Tap(JoyButton.Y); }, wait: 1.0, expect: "Episode 1: play", tab: "Shows");
+        Step("show-episode-check", () =>
+        {
+            var lib = Main.Instance.Host!.Library;
+            var id = GetViewport().GuiGetFocusOwner()?.GetMeta("lightcone_episode", "").AsString() ?? "";
+            if (lib.Find(id) is not { } ep || lib.IsWatched(ep))
+            {
+                throw new InvalidOperationException($"episode {id} should be unwatched after Y");
+            }
+            var others = lib.Children(ep.ParentId ?? "").Where(e => e.Season == ep.Season && e.Id != ep.Id && e.Playable);
+            if (others.Any(e => !lib.IsWatched(e)))
+            {
+                throw new InvalidOperationException("Y on one episode changed the others");
+            }
+        }, wait: 0.5, expect: "Episode 1: play", tab: "Shows");
+        // "Previously": the recap card before an episode after a break.
+        Step("show-recap", () =>
+        {
+            var lib = Main.Instance.Host!.Library;
+            var show = lib.Section(Lightcone.Host.Library.MediaKind.Show).First(s => s.Title == "Deep Field");
+            var eps = lib.Children(show.Id).Where(e => e.Season == 1).ToList();
+            lib.SetWatched(eps[0], true);
+            Main.Instance.Push(new RecapPage(eps[1], eps[0]));
+        }, wait: 1.2, expect: "Play S1 · E2", tab: "Shows");
+        Step("show-recap-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Shows");
+        // Up next: the card counts down (A plays now), and after a run with no press asks "Still watching?" (B stops).
+        Step("episode-play", () =>
+        {
+            FindFocusable(GetTree().Root, "Episode 2: play")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 2.5, tab: "Shows");
+        Step("player-up-next", () => (Main.Instance.Top as PlayerScreen)?.ForceUpNext(false), wait: 1.6, tab: "Shows");
+        Step("player-up-next-play", () => Tap(JoyButton.A), wait: 2.0, tab: "Shows");
+        Step("player-still-watching", () => (Main.Instance.Top as PlayerScreen)?.ForceUpNext(true), wait: 1.2, tab: "Shows");
+        Step("player-still-stop", () => Tap(JoyButton.B), wait: 1.5, tab: "Shows");
         Step("show-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Shows");
+        // Spoiler-free: no thumbnails or summaries for episodes not watched yet.
+        Step("show-spoilers", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { HideSpoilers = true });
+            FindFocusable(GetTree().Root, "Deep Field")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, tab: "Shows");
+        Step("show-spoilers-episodes", () => Tap(JoyButton.DpadDown, 3), wait: 1.0, tab: "Shows");
+        Step("show-cast", () => Tap(JoyButton.DpadDown, 14), wait: 1.0, tab: "Shows");
+        Step("show-spoilers-back", () =>
+        {
+            Tap(JoyButton.B);
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { HideSpoilers = false });
+        }, wait: 1.0, tab: "Shows");
+        // Chapters (a generated file with chapters, when the script could make one): down / up step, the options list them.
+        if (System.Environment.GetEnvironmentVariable("SMOKE_CHAPTERS") is { Length: > 0 } chapters && File.Exists(chapters))
+        {
+            Step("chapters-play", () =>
+            {
+                PlayerService.Instance.Play(new Lightcone.Host.Library.MediaItem
+                {
+                    Id = "file:" + chapters, Title = "Chapters", Kind = Lightcone.Host.Library.MediaKind.Movie, SourceId = "file", SourceName = "File", PlayUrl = chapters,
+                });
+                Main.Instance.ShowPlayer();
+            }, wait: 2.5);
+            Step("chapters-next", () => Tap(JoyButton.DpadDown), wait: 1.5);
+            Step("chapters-options", () => Tap(JoyButton.Start), wait: 1.0);
+            Step("chapters-list", () => Tap(JoyButton.DpadDown, 7), wait: 1.0, expect: "Chapter: ");
+            Step("chapters-pick", () =>
+            {
+                Tap(JoyButton.DpadDown, 2);
+                Tap(JoyButton.A);
+            }, wait: 1.5);
+            Step("chapters-stop", () => Tap(JoyButton.B), wait: 1.2, tab: "Shows");
+        }
         // Music keeps playing in the background with a now-playing chip in the header.
         Step("music", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Music");
         Step("album", () => Tap(JoyButton.A), wait: 1.2, tab: "Music");
@@ -97,6 +228,12 @@ public partial class SmokeTest : Node
         Step("album-player-back", () => Tap(JoyButton.B), wait: 1.2, tab: "Music");
         Step("album-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Music");
         Step("home-continue", () => Tap(JoyButton.LeftShoulder, 3), wait: 1.5, tab: "Home");
+        // Y on Home: Surprise me (Y again: another pick). X: your stats.
+        Step("home-surprise", () => Tap(JoyButton.Y), wait: 1.2, tab: "Home");
+        Step("home-surprise-again", () => Tap(JoyButton.Y), wait: 1.0, tab: "Home");
+        Step("home-surprise-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
+        Step("home-stats", () => Tap(JoyButton.X), wait: 1.5, tab: "Home");
+        Step("home-stats-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
         // Search: the View button (or /) opens it; typing filters across the library.
         // The built-in keyboard: A types the focused key, X deletes, Y adds a space; a real keyboard types too.
         Step("search", () => Tap(JoyButton.Back), wait: 1.0);
@@ -141,9 +278,11 @@ public partial class SmokeTest : Node
         Step("playback-hwdec-back", () => Press("ui_left"), expect: "Decode video on the GPU");
         Step("playback-back", () => Press(Pad.Back), expect: "Playback");
         Step("settings-library-row", () => Press("ui_down"), expect: "Library");
+        Step("settings-home", () => Press("ui_down"), expect: "Home");
+        Step("settings-remote", () => Press("ui_down"), expect: "Phone remote");
         Step("settings-appearance", () => Press("ui_down"), expect: "Appearance");
         Step("settings-sound", () => Press("ui_down"), expect: "Sound & feel");
-        Step("sound-pane", () => Press(Pad.Accept), expect: "Short sounds when you move");
+        Step("sound-pane", () => Press(Pad.Accept), expect: "Left alone on the menus");
         Step("sound-back", () => Press(Pad.Back), expect: "Sound & feel");
         // Music is optional: off takes the tab away (and music out of Home and search).
         Step("settings-library", () => FindFocusable(GetTree().Root, "Music, collections")?.GrabFocus(), expect: "Library");
@@ -202,6 +341,8 @@ public partial class SmokeTest : Node
         Step("desktop-list-view", () => Click(FindFocusable(GetTree().Root, "List")), wait: 1.2, tab: "Movies");
         Step("desktop-sort-year", () => SortColumn(1), wait: 1.0, tab: "Movies");
         Step("desktop-grid-view", () => Click(FindFocusable(GetTree().Root, "Grid")), wait: 1.2, tab: "Movies");
+        Step("desktop-filter-watched", () => PickOption("Filter: which titles to show", 3), wait: 1.2, tab: "Movies");
+        Step("desktop-filter-all", () => PickOption("Filter: which titles to show", 0), wait: 1.2, tab: "Movies");
         Step("desktop-collections", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
         Step("desktop-all-titles", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
         Step("desktop-shows", () => Key(Godot.Key.Key3, ctrl: true), wait: 1.2, tab: "Shows");
@@ -219,6 +360,7 @@ public partial class SmokeTest : Node
             Key(Godot.Key.Enter);
         }, wait: 1.2, tab: "Movies");
         Step("desktop-play", () => Key(Godot.Key.Enter), wait: 2.0, tab: "Movies");
+        Step("desktop-seek-hover", () => HoverOver(FindType<SeekBar>(GetTree().Root), 0.4f), wait: 0.8, tab: "Movies");
         Step("desktop-player-mini", () => Click(FindAny(GetTree().Root, "Keep playing in the mini player")), wait: 1.5, tab: "Movies");
         Step("desktop-music-mini", () => Key(Godot.Key.Key4, ctrl: true), wait: 1.2, tab: "Music");
         Step("desktop-search", () =>
@@ -231,6 +373,163 @@ public partial class SmokeTest : Node
         Step("desktop-settings-playback", () => Press(Pad.Accept), expect: "Decode video on the GPU");
         Step("desktop-stop", () => PlayerService.Instance.Stop(), wait: 1.0);
         Step("controller-layout", () => Main.Instance.ApplyLayout("auto"), wait: 1.5, tab: "Settings");
+        AddRelease09Steps();
+        AddRelease10Steps();
+    }
+
+    /// <summary>0.10.0: the projector intro (held on screen for the shot) and the Lightcone theme.</summary>
+    private void AddRelease10Steps()
+    {
+        Step("v10-intro", () =>
+        {
+            ProjectorIntro.Hold = true;
+            var host = Main.Instance.Host!;
+            var item = host.Library.Section(Lightcone.Host.Library.MediaKind.Movie).First(m => m.Title == "Projector Dreams");
+            PlayerService.Instance.Play(item, fromStart: true);
+            Main.Instance.ShowPlayer();
+        }, wait: 0.3);
+        if (OS.GetEnvironment("SMOKE_GIF") == "1")
+        {
+            // Frames for an animated preview: one every ~0.1 s from the start.
+            for (var i = 0; i < 60; i++)
+            {
+                Step($"v10-gif-{i:00}", () => { }, wait: 0.05);
+            }
+        }
+        Step("v10-intro-spin", () => { }, wait: 0.6);
+        Step("v10-intro-lamp", () => { }, wait: 0.35);
+        Step("v10-intro-beam", () => { }, wait: 1.2);
+        // The film is ready: the camera turns to find the screen (out of frame until now) and pushes in until it fills the frame.
+        Step("v10-intro-push", () => { PlayerService.Instance.SeekTo(30); ProjectorIntro.Hold = false; }, wait: 0.3);
+        if (OS.GetEnvironment("SMOKE_GIF") == "1")
+        {
+            for (var i = 0; i < 44; i++)
+            {
+                Step($"v10-gif-push-{i:00}", () => { }, wait: 0.05);
+            }
+        }
+        else
+        {
+            Step("v10-intro-turn", () => { }, wait: 1.0);  // mid-move: the camera has turned to find the screen
+        }
+        Step("v10-intro-done", () => { }, wait: 2.6);
+        Step("v10-intro-stop", () =>
+        {
+            PlayerService.Instance.Stop();
+            Main.Instance.SwitchTab("Movies");
+        }, wait: 1.5, tab: "Movies");
+    }
+
+    /// <summary>0.9.0: More like this, Play on…, subtitle search, Arrange Home, phone remote, ambient mode, Swedish.</summary>
+    private void AddRelease09Steps()
+    {
+        const string movie = "A Field of Lanterns";
+        Step("v09-movies", () => Main.Instance.SwitchTab("Movies"), wait: 1.2, tab: "Movies");
+        Step("v09-detail", () =>
+        {
+            FindFocusable(GetTree().Root, movie)?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 2.0, tab: "Movies");
+        Step("v09-more-like-this", () => FindFocusable(GetTree().Root, "More like this")?.GrabFocus(), wait: 1.0, tab: "Movies");
+        Step("v09-more-like-this-row", () => Tap(JoyButton.DpadDown, 12), wait: 1.2, tab: "Movies");
+        Step("v09-cast", () =>
+        {
+            FindFocusable(GetTree().Root, $"{movie}: play on another screen")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, expect: "Play on Living room TV", tab: "Movies");
+        Step("v09-cast-send", () => Tap(JoyButton.A), wait: 1.5, expect: "▶ ❚❚  Play / pause", tab: "Movies");
+        Step("v09-cast-pause", () => Tap(JoyButton.Y), wait: 0.8, expect: "▶ ❚❚  Play / pause", tab: "Movies");
+        Step("v09-cast-done", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        Step("v09-detail-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        // Subtitle search (the sample library's results make a real SRT) and the new subtitle look.
+        Step("v09-play", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { SubtitleStyle = "box", SubtitleColor = "yellow" });
+            var item = host.Library.Section(Lightcone.Host.Library.MediaKind.Movie).First(m => m.Title == movie);
+            PlayerService.Instance.Play(item);
+            Main.Instance.ShowPlayer();
+        }, wait: 2.5);
+        Step("v09-options", () => Tap(JoyButton.Start), wait: 1.0);
+        Step("v09-find-subtitles", () =>
+        {
+            FindFocusable(GetTree().Root, "Search OpenSubtitles")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, expect: "Subtitle: ");
+        Step("v09-subtitle-pick", () => Tap(JoyButton.A), wait: 1.5);
+        Step("v09-subtitle-shown", () => Tap(JoyButton.B), wait: 3.0);
+        Step("v09-stop", () =>
+        {
+            PlayerService.Instance.Stop();
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { SubtitleStyle = "outline", SubtitleColor = "white" });
+            Main.Instance.SwitchTab("Settings");
+        }, wait: 1.5, tab: "Settings");
+        // Arrange Home: move Recently added up, look at Home, then reset.
+        Step("v09-arrange", () => Main.Instance.Push(new HomeLayoutPage()), wait: 1.0, expect: "Home row: Continue watching", tab: "Settings");
+        Step("v09-arrange-move", () =>
+        {
+            FindFocusable(GetTree().Root, "Move Recently added up")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "↑", tab: "Settings");
+        Step("v09-arrange-home", () => Main.Instance.SwitchTab("Home"), wait: 1.5, tab: "Home");
+        Step("v09-arrange-reset", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { HomeOrder = [], HomeHidden = [] });
+            Main.Instance.SwitchTab("Settings");
+        }, wait: 1.2, tab: "Settings");
+        // Phone remote: on, the page with its PIN and QR code, then a command over HTTP moves the focus.
+        Step("v09-remote", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { RemoteEnabled = true });
+            PhoneRemote.Instance?.Apply();
+            FindFocusable(GetTree().Root, "Control Lightcone from a phone")?.GrabFocus();
+            Press(Pad.Accept);
+        }, wait: 1.5, tab: "Settings");
+        Step("v09-remote-http", () =>
+        {
+            var port = PhoneRemote.Instance?.Port ?? 0;
+            var pin = Main.Instance.Host!.Settings.RemotePin ?? "";
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, $"http://127.0.0.1:{port}/api/state");
+            req.Headers.Add("X-Lightcone-Pin", pin);
+            var state = http.Send(req);
+            var page = http.Send(new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, $"http://127.0.0.1:{port}/"));
+            using var cmd = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, $"http://127.0.0.1:{port}/api/cmd?c=back");
+            cmd.Headers.Add("X-Lightcone-Pin", pin);
+            var sent = http.Send(cmd);
+            Lightcone.Host.AppLog.Info($"smoke: phone remote state {(int)state.StatusCode}, page {(int)page.StatusCode}, command {(int)sent.StatusCode}");
+        }, wait: 1.2, expect: "Phone remote", tab: "Settings");
+        Step("v09-remote-off", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { RemoteEnabled = false });
+            PhoneRemote.Instance?.Apply();
+        }, wait: 0.5, tab: "Settings");
+        Step("v09-ambient", () => Main.Instance.ShowAmbient(), wait: 3.0, tab: "Settings");
+        Step("v09-ambient-wake", () => Tap(JoyButton.A), wait: 1.0, expect: "Phone remote", tab: "Settings");
+        // Svenska.
+        Step("v09-swedish-home", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { Language = "sv" });
+            Loc.Apply("sv");
+            Main.Instance.SwitchTab("Home");
+        }, wait: 1.5, tab: "Home");
+        Step("v09-swedish-settings", () =>
+        {
+            Main.Instance.SwitchTab("Settings");
+            Press(Pad.Accept);
+        }, wait: 1.5, tab: "Settings");
+        Step("v09-swedish-off", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { Language = "auto" });
+            Loc.Apply("auto");
+            Press(Pad.Back);
+        }, wait: 1.0, tab: "Settings");
     }
 
     private static void TypeText(string text)
@@ -262,7 +561,16 @@ public partial class SmokeTest : Node
         }
     }
 
-    private void Step(string name, Action act, double wait = 1.0, string? expect = null, string? tab = null) => _steps.Enqueue((name, act, wait, expect, tab));
+    private static readonly string? Only = OS.GetEnvironment("SMOKE_ONLY") is { Length: > 0 } o ? o : null;
+
+    private void Step(string name, Action act, double wait = 1.0, string? expect = null, string? tab = null)
+    {
+        // SMOKE_ONLY=v10 runs just the steps whose names start with it (quick visual checks).
+        if (Only == null || name.StartsWith(Only, StringComparison.Ordinal))
+        {
+            _steps.Enqueue((name, act, wait, expect, tab));
+        }
+    }
 
     private static Control? FindFocusable(Node root, string tooltip)
     {
@@ -322,6 +630,19 @@ public partial class SmokeTest : Node
         }
     }
 
+    private static void TwinTap(JoyButton b, bool interleaved)
+    {
+        InputEventJoypadButton Ev(int device, bool pressed) => new() { Device = device, ButtonIndex = b, Pressed = pressed };
+        InputEvent[] events = interleaved
+            ? [Ev(0, true), Ev(1, true), Ev(0, false), Ev(1, false)]
+            : [Ev(0, true), Ev(0, false), Ev(1, true), Ev(1, false)];
+        foreach (var e in events)
+        {
+            Input.ParseInputEvent(e);
+        }
+        Input.FlushBufferedEvents();
+    }
+
     private static void Trigger(JoyAxis axis)
     {
         Input.ParseInputEvent(new InputEventJoypadMotion { Device = 0, Axis = axis, AxisValue = 1f });
@@ -344,7 +665,47 @@ public partial class SmokeTest : Node
         TouchTap(c);
     }
 
+    /// <summary>The mouse over a spot of a control (<paramref name="x"/>: 0–1 across it).</summary>
+    private static void HoverOver(Control? c, float x)
+    {
+        if (c == null)
+        {
+            throw new InvalidOperationException("nothing to hover");
+        }
+        var r = c.GetGlobalRect();
+        var at = new Vector2(r.Position.X + r.Size.X * x, r.Position.Y + r.Size.Y / 2);
+        c.GetViewport().PushInput(new InputEventMouseMotion { Position = at, GlobalPosition = at }, true);
+        GD.Print($"smoke: hover at {at}, bar {(c is SeekBar bar ? bar.Hover : -2)}");
+    }
+
+    private static T? FindType<T>(Node root) where T : Node
+    {
+        foreach (var c in root.GetChildren())
+        {
+            if (c is T t)
+            {
+                return t;
+            }
+            if (FindType<T>(c) is { } found)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+
     /// <summary>Any visible control by tooltip, focusable or not (the player's buttons take no focus).</summary>
+    /// <summary>Picks an item of a drop-down (as choosing it from its popup would).</summary>
+    private void PickOption(string tooltip, int index)
+    {
+        if (FindAny(GetTree().Root, tooltip) is not OptionButton ob)
+        {
+            throw new InvalidOperationException($"no drop-down '{tooltip}'");
+        }
+        ob.Select(index);
+        ob.EmitSignal(OptionButton.SignalName.ItemSelected, index);
+    }
+
     private static Control? FindAny(Node root, string tooltip)
     {
         foreach (var c in root.GetChildren())

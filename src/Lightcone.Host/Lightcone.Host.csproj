@@ -9,4 +9,7 @@
     <InternalsVisibleTo Include="Lightcone.Core.Tests" />
     <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="CHANGELOG.md" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
 </Project>

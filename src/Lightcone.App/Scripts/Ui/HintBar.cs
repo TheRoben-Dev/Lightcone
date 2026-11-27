@@ -66,9 +66,26 @@ public partial class HintBar : HBoxContainer
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 8);
             row.AddChild(new ButtonGlyph(Pad.Glyph(action)));
-            var text = UiTheme.Label(UiTheme.Mono ? label.ToUpperInvariant() : label, UiTheme.SmallSize + 1, UiTheme.Dim);
+            var text = UiTheme.Label(UiTheme.Mono ? Loc.Upper(label) : label, UiTheme.SmallSize + 1, UiTheme.Dim);
             text.VerticalAlignment = VerticalAlignment.Center;
             row.AddChild(text);
+            // Desktop: every hint is also a click target, so mouse-only users reach the same
+            // actions as the buttons and keys (focus stays where it was).
+            if (UiLayout.Desktop)
+            {
+                row.MouseFilter = MouseFilterEnum.Stop;
+                row.MouseDefaultCursorShape = CursorShape.PointingHand;
+                var a = action;
+                row.GuiInput += e =>
+                {
+                    if (e is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
+                    {
+                        Input.ParseInputEvent(new InputEventAction { Action = a, Pressed = true });
+                        Input.ParseInputEvent(new InputEventAction { Action = a, Pressed = false });
+                        row.AcceptEvent();
+                    }
+                };
+            }
             _hints.AddChild(row);
         }
         if (Anim.Enabled && IsInsideTree())

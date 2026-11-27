@@ -75,6 +75,370 @@ public partial class PlayerService : Node
     /// <summary>Raised when the current item ends by itself.</summary>
     public event Action<MediaItem>? Finished;
 
+    // ---- sleep timer ----
+
+    /// <summary>Sleep timer: seconds of playback left before it pauses (null = off).</summary>
+    public double? SleepLeft { get; private set; }
+
+    /// <summary>Sleep timer set to stop at the end of what's playing (no next episode).</summary>
+    public bool SleepAtEnd { get; private set; }
+
+    /// <summary>What the sleep timer was set to (minutes, -1 end of item, 0 off).</summary>
+    public int SleepChoice { get; private set; }
+
+    /// <summary>Volume fades over this long before the sleep timer pauses.</summary>
+    public const double SleepFadeSeconds = 30;
+
+    /// <summary>Raised when the sleep timer paused or stopped playback.</summary>
+    public event Action? SleepFired;
+
+    /// <summary>Sets the sleep timer: minutes from now, 0 = off, -1 = at the end of this episode / movie.</summary>
+    public void SetSleep(int minutes)
+    {
+        RestoreVolume();
+        SleepAtEnd = minutes < 0;
+        SleepLeft = minutes > 0 ? minutes * 60 : null;
+        SleepChoice = minutes;
+        AppLog.Info($"sleep timer: {(minutes > 0 ? $"{minutes} min" : minutes < 0 ? "end of item" : "off")}");
+        Changed?.Invoke();
+    }
+
+    /// <summary>"Sleep in 24 min", "Sleep after this episode", or null when off.</summary>
+    public string? SleepText => SleepAtEnd ? $"Sleep after this {(Current?.Kind == MediaKind.Episode ? "episode" : "one")}"
+        : SleepLeft is { } left ? $"Sleep in {Math.Max(1, (int)Math.Ceiling(left / 60))} min" : null;
+
+    private bool _faded;
+
+    private void RestoreVolume()
+    {
+        if (_faded)
+        {
+            _faded = false;
+            Guard(() => _mpv?.SetString("volume", "100"));
+        }
+    }
+
+    /// <summary>Called by the player when it finishes an item: true when the sleep timer ends playback here.</summary>
+    public bool SleepEndsHere()
+    {
+        if (!SleepAtEnd)
+        {
+            return false;
+        }
+        SleepAtEnd = false;
+        SleepChoice = 0;
+        AppLog.Info("sleep timer: stopped at the end");
+        SleepFired?.Invoke();
+        return true;
+    }
+
+    private void TickSleep(double delta)
+    {
+        if (SleepLeft is not { } left || _mpv == null || _mpv.Paused)
+        {
+            return;
+        }
+        left -= delta;
+        if (left <= 0)
+        {
+            SleepLeft = null;
+            SleepChoice = 0;
+            _mpv.Paused = true;
+            SaveProgress(PlaybackState.Paused);
+            RestoreVolume();
+            AppLog.Info("sleep timer: paused");
+            SleepFired?.Invoke();
+            Changed?.Invoke();
+            return;
+        }
+        SleepLeft = left;
+        if (left < SleepFadeSeconds)
+        {
+            _faded = true;
+            var v = (int)(100 * Math.Clamp(left / SleepFadeSeconds, 0.05, 1));
+            Guard(() => _mpv.SetString("volume", v.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+    }
+
+    // ---- speed and delays (remembered per show / movie) ----
+
+    public double Speed { get; private set; } = 1;
+    public double SubDelay { get; private set; }
+    public double AudioDelay { get; private set; }
+
+    private static string Num(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+    public void SetSpeed(double v)
+    {
+        Speed = Math.Clamp(v, 0.25, 4);
+        Guard(() => _mpv?.SetString("speed", Num(Speed)));
+        if (TrackKey(Current) is { } key)
+        {
+            Host.Library.Lists.RememberPlayback(key, speed: Speed);
+        }
+        Changed?.Invoke();
+    }
+
+    public void SetSubDelay(double v)
+    {
+        SubDelay = Math.Round(v, 2);
+        Guard(() => _mpv?.SetString("sub-delay", Num(SubDelay)));
+        if (TrackKey(Current) is { } key)
+        {
+            Host.Library.Lists.RememberPlayback(key, subDelay: SubDelay);
+        }
+        Changed?.Invoke();
+    }
+
+    public void SetAudioDelay(double v)
+    {
+        AudioDelay = Math.Round(v, 2);
+        Guard(() => _mpv?.SetString("audio-delay", Num(AudioDelay)));
+        if (TrackKey(Current) is { } key)
+        {
+            Host.Library.Lists.RememberPlayback(key, audioDelay: AudioDelay);
+        }
+        Changed?.Invoke();
+    }
+
+    // ---- chapters ----
+
+    /// <summary>Chapters of what's playing (from the file), in order.</summary>
+    public IReadOnlyList<Chapter> Chapters { get; private set; } = [];
+
+    public Chapter? CurrentChapter => Chapter.At(Chapters, Position);
+
+    /// <summary>Next (+1) or previous (-1) chapter; "previous" restarts the current one unless it just began.</summary>
+    public bool StepChapter(int dir)
+    {
+        if (Chapters.Count == 0)
+        {
+            return false;
+        }
+        var cur = CurrentChapter;
+        Chapter? target;
+        if (dir > 0)
+        {
+            target = Chapters.FirstOrDefault(c => c.Start > Position + 0.5);
+        }
+        else
+        {
+            target = cur != null && Position - cur.Start > 3 ? cur : Chapters.LastOrDefault(c => c.Start < (cur?.Start ?? Position) - 0.5) ?? Chapters[0];
+        }
+        if (target == null)
+        {
+            return false;
+        }
+        SeekTo(target.Start);
+        return true;
+    }
+
+    // ---- quality ----
+
+    /// <summary>Quality picked in the player's options for this run of the app (else Settings).</summary>
+    public string? QualityOverride { get; private set; }
+
+    /// <summary>The quality <paramref name="item"/> plays at: the player's pick, else home / away from Settings.</summary>
+    public Quality QualityFor(MediaItem item) =>
+        !Host.Library.CanConvert(item) ? QualityPolicy.Original
+        : QualityPolicy.Find(QualityOverride ?? (Host.Library.IsRemote(item) ? Host.Settings.QualityAway : Host.Settings.Quality));
+
+    /// <summary>What mpv opens: a downloaded copy, a server-converted stream, or the file.</summary>
+    private string? UrlFor(MediaItem item)
+    {
+        if (Host.Downloads.LocalFile(item) is { } local)
+        {
+            AppLog.Info($"playing the download of {item.Id}");
+            return local;
+        }
+        var q = QualityFor(item);
+        var url = Host.Library.StreamUrl(item, q);
+        if (!q.Original)
+        {
+            AppLog.Info($"quality {q.Id} for {item.Id}");
+        }
+        return url;
+    }
+
+    /// <summary>Picks another quality from the player's options: reopens what's playing at the same spot.</summary>
+    public void SetQuality(string id)
+    {
+        QualityOverride = id;
+        if (Current is { } cur && _mpv != null)
+        {
+            var at = Position;
+            Play(cur, startAt: at);
+        }
+    }
+
+    // ---- sound: night mode and clear voices ----
+
+    private int? AudioChannels => Tracks.FirstOrDefault(t => t.Kind == TrackKind.Audio && t.Selected)?.Channels;
+
+    private string _af = "";
+
+    /// <summary>Sets mpv's audio filters from Settings (Night mode, Clear voices) for the playing track.</summary>
+    public void ApplyAudioFilters()
+    {
+        var s = Host.Settings;
+        var af = HasVideo || Current?.Kind is MediaKind.Movie or MediaKind.Episode ? AudioFilters.Build(s.NightMode, s.ClearVoices, AudioChannels) : "";
+        if (af == _af || _mpv == null)
+        {
+            return;
+        }
+        _af = af;
+        AppLog.Info($"audio filters: {(af.Length == 0 ? "none" : af)}");
+        Guard(() => _mpv.SetString("af", af));
+    }
+
+    /// <summary>Volume up or down by <paramref name="step"/> percent (phone remote), up to 150.</summary>
+    public void NudgeVolume(int step)
+    {
+        Guard(() => _mpv?.Command("add", "volume", step.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        if (_mpv?.GetString("volume") is { } v)
+        {
+            Changed?.Invoke();
+            VolumeText = $"Volume {v.Split('.')[0]}%";
+        }
+    }
+
+    public void ToggleMute() => Guard(() => _mpv?.Command("cycle", "mute"));
+
+    /// <summary>The last volume change, for a toast.</summary>
+    public string? VolumeText { get; private set; }
+
+    /// <summary>Applies Settings' subtitle size and look to what's playing now.</summary>
+    public void ApplySubtitleLook()
+    {
+        if (_mpv == null)
+        {
+            return;
+        }
+        var s = Host.Settings;
+        var o = SubtitleLook.Options(s.SubtitleScale, s.SubtitleColor, s.SubtitleStyle, s.SubtitlePosition, s.SubtitleBold);
+        var oldMpv = false;
+        foreach (var (k, v) in o)
+        {
+            try
+            {
+                _mpv.SetString(k, v);
+            }
+            catch (MpvException e)
+            {
+                oldMpv |= k == "sub-border-style";
+                // mpv before 0.38 calls the outline "border".
+                var older = k.Replace("sub-outline-", "sub-border-", StringComparison.Ordinal);
+                if (older != k)
+                {
+                    Guard(() => _mpv.SetString(older, v));
+                }
+                else
+                {
+                    AppLog.Info($"subtitle look: {k}={v}: {e.Message}");
+                }
+            }
+        }
+        if (oldMpv && s.SubtitleStyle == "box")
+        {
+            // Before sub-border-style, a box is a shadow drawn behind the text in the background colour.
+            Guard(() => _mpv.SetString("sub-shadow-offset", "4"));
+            Guard(() => _mpv.SetString("sub-shadow-color", o["sub-back-color"]));
+        }
+    }
+
+    /// <summary>Loads an external subtitle file or URL and shows it.</summary>
+    public void AddSubtitle(string url, string? title = null, string? lang = null)
+    {
+        if (_mpv == null)
+        {
+            return;
+        }
+        AppLog.Info($"subtitle added: {title} ({lang}) from {(url.Contains("://", StringComparison.Ordinal) ? new Uri(url).Host : "a file")}");
+        Guard(() => _mpv.Command("sub-add", url, "select", title ?? "Downloaded", lang ?? ""));
+    }
+
+    public void SetNightMode(bool on)
+    {
+        Host.SaveSettings(Host.Settings with { NightMode = on });
+        ApplyAudioFilters();
+        Changed?.Invoke();
+    }
+
+    public void SetClearVoices(bool on)
+    {
+        Host.SaveSettings(Host.Settings with { ClearVoices = on });
+        ApplyAudioFilters();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Seek bar thumbnails for what's playing, when its server has them.</summary>
+    public SeekPreview? Preview => Current is { } c ? Host.Library.PreviewOf(c) : null;
+
+    // ---- what plays next: in order, or shuffled ----
+
+    /// <summary>The show being shuffled (random episodes in a row), or null.</summary>
+    public string? ShuffleShow { get; private set; }
+
+    private readonly HashSet<string> _shufflePlayed = new();
+
+    /// <summary>Plays random episodes of a show, one after another.</summary>
+    public void Shuffle(MediaItem show)
+    {
+        ShuffleShow = show.Id;
+        _shufflePlayed.Clear();
+        AutoRun = 0;
+        if (UpNextFor(null) is { } first)
+        {
+            Play(first, fromStart: Host.Library.PositionOf(first) == null);
+        }
+    }
+
+    /// <summary>
+    /// What plays after <paramref name="done"/>: a random episode not played yet in this shuffle
+    /// (unwatched ones first), else the next episode or track.
+    /// </summary>
+    public MediaItem? UpNextFor(MediaItem? done)
+    {
+        if (ShuffleShow is { } show && (done == null || done.ParentId == show))
+        {
+            var eps = Host.Library.Children(show).Where(e => e.Playable && e.Id != done?.Id && !_shufflePlayed.Contains(e.Id)).ToList();
+            if (eps.Count == 0)
+            {
+                return null;
+            }
+            var fresh = eps.Where(e => !Host.Library.IsWatched(e)).ToList();
+            var pool = fresh.Count > 0 && Random.Shared.Next(3) > 0 ? fresh : eps;
+            return pool[Random.Shared.Next(pool.Count)];
+        }
+        return done == null ? null : Host.Library.NextAfter(done);
+    }
+
+    /// <summary>Episodes in a row that started by themselves (no button pressed since): for "Still watching?".</summary>
+    public int AutoRun { get; private set; }
+
+    /// <summary>Any press in the player: the viewer is still there.</summary>
+    public void NoteInput() => AutoRun = 0;
+
+    /// <summary>True when the next autoplay should ask "Still watching?" first.</summary>
+    public bool ShouldAskStillWatching => Host.Settings.StillWatchingAfter is > 0 and var n && AutoRun >= n;
+
+    /// <summary>Plays what comes after the current item; <paramref name="auto"/> when nobody pressed anything.</summary>
+    public MediaItem? PlayNext(bool auto)
+    {
+        if (Current is not { } cur || UpNextFor(cur) is not { } next)
+        {
+            return null;
+        }
+        if (Position > 0 && Duration is { } d && Position >= d - Math.Max(120, d * 0.08))
+        {
+            Host.Library.SetWatched(cur, true);  // leaving during the credits counts as watched
+        }
+        AutoRun = auto ? AutoRun + 1 : 0;
+        AppLog.Info($"next{(auto ? " (auto)" : "")}: {next.Id}");
+        Play(next, fromStart: true);
+        return next;
+    }
+
     private static AppHost Host => Main.Instance.Host!;
 
     public override void _EnterTree() => Instance = this;
@@ -97,7 +461,6 @@ public partial class PlayerService : Node
             ["hwdec"] = _software ? (s.Hwdec == HwdecPolicy.Off ? "no" : "auto-copy-safe") : HwdecPolicy.Resolve(s.Hwdec, os, egl),
             ["alang"] = string.Join(',', s.AudioLanguages),
             ["slang"] = string.Join(',', s.SubtitleLanguages),
-            ["sub-scale"] = (s.SubtitleScale / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
             ["sub-auto"] = "fuzzy",
             ["sub-ass-override"] = "scale",
             ["audio-display"] = "no",
@@ -106,6 +469,10 @@ public partial class PlayerService : Node
             ["volume-max"] = "150",
             ["msg-level"] = "all=warn",
         };
+        // Only the size here: the rest of the subtitle look is set after start-up, one option at a
+        // time, because older libmpv builds lack some (sub-border-style) and an unknown option here
+        // would stop the player from starting at all.
+        o["sub-scale"] = (s.SubtitleScale / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         if (s.SubtitleLanguages.Count == 0)
         {
             o["sid"] = "no";
@@ -128,11 +495,12 @@ public partial class PlayerService : Node
         {
             GlProc.Detect();
             _mpv = new MpvPlayer(Options());
-            foreach (var p in new[] { "pause", "track-list", "duration", "hwdec-current", "aid", "sid" })
+            foreach (var p in new[] { "pause", "track-list", "duration", "hwdec-current", "aid", "sid", "chapter-list" })
             {
                 _mpv.Observe(p);
             }
             AppLog.Info($"mpv {_mpv.GetString("mpv-version")} from {MpvLibrary.LoadedFrom}, render {RenderPath}");
+            ApplySubtitleLook();
         }
         catch (Exception e) when (e is MpvException or DllNotFoundException or EntryPointNotFoundException)
         {
@@ -173,16 +541,35 @@ public partial class PlayerService : Node
         }
     }
 
-    /// <summary>Plays <paramref name="item"/>; resumes where it was left unless <paramref name="fromStart"/>.</summary>
-    public void Play(MediaItem item, bool fromStart = false)
+    /// <summary>Plays <paramref name="item"/>; resumes where it was left unless <paramref name="fromStart"/> (or <paramref name="startAt"/> seconds).</summary>
+    public void Play(MediaItem item, bool fromStart = false, double? startAt = null)
     {
         if (item.PlayUrl == null || !EnsurePlayer())
         {
             return;
         }
         SaveProgress(PlaybackState.Stopped);
-        var start = fromStart ? 0 : Host.Library.PositionOf(item) ?? 0;
+        FlushHistory();
+        if (ShuffleShow != null && item.ParentId != ShuffleShow)
+        {
+            ShuffleShow = null;
+        }
+        if (ShuffleShow != null)
+        {
+            _shufflePlayed.Add(item.Id);
+        }
+        RestoreVolume();
+        var start = startAt ?? (fromStart ? 0 : Host.Library.PositionOf(item) ?? 0);
+        if (startAt == null && start > 0 && Host.Settings.SmartResume && item.Kind is MediaKind.Movie or MediaKind.Episode)
+        {
+            // Back up a little (more after a long break) so the last line plays again.
+            var last = Host.Library.LastViewed(item);
+            var rewind = ResumePolicy.Rewind(last is { } t ? DateTime.UtcNow - t.ToUniversalTime() : null);
+            start = Math.Max(0, start - rewind);
+        }
+        Chapters = [];
         Current = item;
+        _frameShown = false;
         Position = start;
         _seekTarget = null;
         Duration = item.Duration;
@@ -193,7 +580,8 @@ public partial class PlayerService : Node
         try
         {
             ApplyTrackChoice(item);
-            _mpv!.Load(item.PlayUrl, start);
+            ApplySubtitleLook();
+            _mpv!.Load(UrlFor(item) ?? item.PlayUrl!, start);
             _mpv.Paused = false;
         }
         catch (MpvException e)
@@ -267,7 +655,7 @@ public partial class PlayerService : Node
 
     /// <summary>During an episode's end credits with another episode after it: what the skip button plays instead.</summary>
     public MediaItem? NextInsteadOfCredits =>
-        ActiveMarker is { Kind: Marker.Credits } && Current is { Kind: MediaKind.Episode } cur ? Host.Library.NextAfter(cur) : null;
+        ActiveMarker is { Kind: Marker.Credits } && Current is { Kind: MediaKind.Episode } cur && !SleepAtEnd ? UpNextFor(cur) : null;
 
     public string? SkipLabel => ActiveMarker is { } m ? NextInsteadOfCredits != null ? "Next episode" : m.Label : null;
 
@@ -277,6 +665,7 @@ public partial class PlayerService : Node
         {
             AppLog.Info($"credits: on to {next.Id}");
             Host.Library.SetWatched(cur, true);
+            AutoRun = 0;
             Play(next, fromStart: true);
             return;
         }
@@ -342,9 +731,16 @@ public partial class PlayerService : Node
         _mpv.SetString("slang", string.Join(',', slang));
         _mpv.SetString("aid", "auto");
         _mpv.SetString("sid", off ? "no" : "auto");
+        // mpv keeps these across files: set each one, remembered or default.
+        Speed = pref?.Speed ?? 1;
+        SubDelay = pref?.SubDelay ?? 0;
+        AudioDelay = pref?.AudioDelay ?? 0;
+        _mpv.SetString("speed", Num(Speed));
+        _mpv.SetString("sub-delay", Num(SubDelay));
+        _mpv.SetString("audio-delay", Num(AudioDelay));
         if (pref != null)
         {
-            AppLog.Info($"tracks for {item.Id}: audio {pref.Audio ?? "default"}, subtitles {(off ? "off" : pref.Subtitle ?? "default")}");
+            AppLog.Info($"tracks for {item.Id}: audio {pref.Audio ?? "default"}, subtitles {(off ? "off" : pref.Subtitle ?? "default")}, speed {Speed}, delays {SubDelay}/{AudioDelay}");
         }
     }
 
@@ -356,8 +752,14 @@ public partial class PlayerService : Node
             return;
         }
         SaveProgress(PlaybackState.Stopped);
+        FlushHistory();
         AppLog.Info($"stop {Current.Id} at {Position:0}s");
         Current = null;
+        ShuffleShow = null;
+        SleepLeft = null;
+        SleepAtEnd = false;
+        SleepChoice = 0;
+        RestoreVolume();
         HasVideo = false;
         Guard(() => _mpv?.Command("stop"));
         Changed?.Invoke();
@@ -375,11 +777,42 @@ public partial class PlayerService : Node
         }
     }
 
+    private double _watchedSeconds;
+
+    /// <summary>Source id of trailers and extras: played as is, with no progress or history kept.</summary>
+    public const string ExtraSource = "extra";
+
+    /// <summary>A download played (maybe offline): its state goes to the server again once it's reachable.</summary>
+    private void NoteDownload(MediaItem item)
+    {
+        if (Host.Downloads.Of(item.Id) != null)
+        {
+            Host.Downloads.NoteProgress(item.Id);
+        }
+    }
+
+    /// <summary>Opened files and extras stay out of the history.</summary>
+    private static bool Untracked(MediaItem item) => item.SourceId is "file" or ExtraSource;
+
+    /// <summary>Adds the time watched since the last call to the history (the stats page).</summary>
+    private void FlushHistory(bool finished = false, bool flush = true)
+    {
+        if (Current is not { } item || Untracked(item) || (_watchedSeconds < 1 && !finished))
+        {
+            _watchedSeconds = 0;
+            return;
+        }
+        var show = item.ParentId != null ? Host.Library.Find(item.ParentId) : null;
+        Host.Library.History.Add(item, show, _watchedSeconds, finished, flush: flush);
+        _watchedSeconds = 0;
+    }
+
     private void SaveProgress(PlaybackState state = PlaybackState.Playing)
     {
-        if (Current is { } item && Position > 0)
+        if (Current is { } item && Position > 0 && item.SourceId != ExtraSource)
         {
             Host.Library.Report(item, Position, Duration, state);
+            NoteDownload(item);
         }
     }
 
@@ -397,11 +830,26 @@ public partial class PlayerService : Node
                     HwdecCurrent = _mpv.GetString("hwdec-current") ?? "";
                     Tracks = _mpv.Tracks;
                     HasVideo = Tracks.Any(t => t.Kind == TrackKind.Video) && Current?.Kind is not (MediaKind.Track or MediaKind.Album);
-                    AppLog.Info($"loaded: {Tracks.Count} tracks, hwdec {HwdecCurrent}, {_mpv.GetString("video-codec")}");
+                    Chapters = Chapter.ParseList(_mpv.GetString("chapter-list"));
+                    if (!HasVideo)
+                    {
+                        _frameShown = true;
+                    }
+                    ApplyAudioFilters();
+                    AppLog.Info($"loaded: {Tracks.Count} tracks, {Chapters.Count} chapters, hwdec {HwdecCurrent}, {_mpv.GetString("video-codec")}");
                     Changed?.Invoke();
                     break;
                 case MpvEventId.PropertyChange when e.Property is "track-list" or "aid" or "sid":
+                    var channels = AudioChannels;
                     Tracks = _mpv.Tracks;
+                    if (AudioChannels != channels)
+                    {
+                        ApplyAudioFilters();
+                    }
+                    Changed?.Invoke();
+                    break;
+                case MpvEventId.PropertyChange when e.Property == "chapter-list" && Current != null:
+                    Chapters = Chapter.ParseList(_mpv.GetString("chapter-list"));
                     Changed?.Invoke();
                     break;
                 case MpvEventId.PropertyChange when e.Property == "hwdec-current":
@@ -418,7 +866,12 @@ public partial class PlayerService : Node
                     break;
                 case MpvEventId.EndFile when e.EndReason == 0 && Current is { } done && !_ending:
                     _ending = true;
-                    Host.Library.Report(done, Duration ?? Position, Duration, PlaybackState.Stopped);
+                    FlushHistory(finished: true);
+                    if (done.SourceId != ExtraSource)
+                    {
+                        Host.Library.Report(done, Duration ?? Position, Duration, PlaybackState.Stopped);
+                        NoteDownload(done);
+                    }
                     Finished?.Invoke(done);
                     break;
             }
@@ -430,7 +883,12 @@ public partial class PlayerService : Node
             {
                 // keep-open=yes: the end shows as eof-reached, not end-file.
                 _ending = true;
-                Host.Library.Report(item, Duration ?? Position, Duration, PlaybackState.Stopped);
+                FlushHistory(finished: true);
+                if (item.SourceId != ExtraSource)
+                {
+                    Host.Library.Report(item, Duration ?? Position, Duration, PlaybackState.Stopped);
+                    NoteDownload(item);
+                }
                 Finished?.Invoke(item);
             }
             ActiveMarker = Host.Library.MarkersOf(Current).FirstOrDefault(m => Position >= m.Start && Position < m.End - 1);
@@ -441,11 +899,17 @@ public partial class PlayerService : Node
                 SkipMarker();
                 Main.Instance.Toast("Skipped the intro");
             }
+            if (!_mpv.Paused)
+            {
+                _watchedSeconds += delta * Speed;
+            }
+            TickSleep(delta);
             _saveClock += delta;
             if (_saveClock >= ResumePolicy.SaveIntervalSeconds && !_mpv.Paused)
             {
                 _saveClock = 0;
                 SaveProgress();
+                FlushHistory(flush: false);
             }
         }
         DrawFrame();
@@ -491,18 +955,36 @@ public partial class PlayerService : Node
         return new Vector2I(Math.Max(2, (int)(w * scale)) & ~1, Math.Max(2, (int)(h * scale)) & ~1);
     }
 
+    /// <summary>
+    /// Set by the player while nobody is interacting (controls hidden, no input): frames are then
+    /// presented at the video's own cadence, which a VRR screen follows. Otherwise the UI runs at
+    /// the display's full rate.
+    /// </summary>
+    public bool Paced { get; set; }
+
+    private volatile bool _frameShown;
+
+    /// <summary>The current item's first picture has been drawn (or it has no picture): loading is over.</summary>
+    public bool FrameShown => _frameShown;
+
+    /// <summary>True while a new video frame is waiting to be drawn.</summary>
+    public bool FramePending => _render?.FramePending == true;
+
     private void DrawFrame()
     {
         if (_render == null || !HasVideo)
         {
             return;
         }
+        // Never on the software path: that renders on the main loop, where waiting stalls input.
+        _render.PaceToVideo = Paced && !_software;
         EnsureTexture(TargetSize());
         if (_software)
         {
             if (_render.TakeFrame())
             {
                 _render.RenderSoftware(_buffer, _size.X, _size.Y);
+                _frameShown = true;
                 _image!.SetData(_size.X, _size.Y, false, Image.Format.Rgba8, _buffer);
                 _texture!.Update(_image);
             }
@@ -528,6 +1010,7 @@ public partial class PlayerService : Node
             var prev = Gl.BoundFramebuffer();
             _render.RenderGl(_fbo, size.X, size.Y);
             Gl.Bind(prev);
+            _frameShown = true;
             _render.ReportSwap();
         }));
     }
@@ -535,6 +1018,8 @@ public partial class PlayerService : Node
     public override void _ExitTree()
     {
         SaveProgress(PlaybackState.Stopped);
+        FlushHistory();
+        Host.Library.History.Flush();
         // The render context must go before the player, on the render thread.
         var rc = _render;
         _render = null;

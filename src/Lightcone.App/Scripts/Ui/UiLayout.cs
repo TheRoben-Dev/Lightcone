@@ -48,6 +48,9 @@ public static class UiLayout
         var desktop = Resolve(setting);
         var changed = desktop != Desktop;
         Desktop = desktop;
+        // Mouse tooltips only in the desktop layout: with a controller the (hidden) pointer sits
+        // still in the middle of the screen, and a tooltip would pop up under it mid-movie.
+        ProjectSettings.SetSetting("gui/timers/tooltip_delay_sec", desktop ? 1.2 : 86400.0);
         if (desktop)
         {
             var scale = DesktopScale * Math.Max(1f, DisplayServer.ScreenGetScale());

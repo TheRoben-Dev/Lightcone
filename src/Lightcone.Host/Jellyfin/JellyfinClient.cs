@@ -54,6 +54,15 @@ public sealed class JellyfinClient
         return await SendForJsonAsync(req, ct, timeout) ?? throw new JsonException("empty response");
     }
 
+    /// <summary>Downloads a file (trickplay tiles) with the token.</summary>
+    public async Task<byte[]> GetBytesAsync(string url, string? token, CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, url, token);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsByteArrayAsync(ct);
+    }
+
     /// <summary>A request with an optional JSON body; returns the JSON answer, or null when there is none.</summary>
     public async Task<JsonDocument?> SendAsync(HttpMethod method, string url, string? token, object? body = null, CancellationToken ct = default, TimeSpan? timeout = null)
     {

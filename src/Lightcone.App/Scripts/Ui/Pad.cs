@@ -8,6 +8,8 @@ public enum PadFamily
     Xbox,
     PlayStation,
     Nintendo,
+    /// <summary>Steam Deck's own buttons (A B X Y, L1 / R1, L2 / R2, ☰ and ⧉), drawn without colours.</summary>
+    Deck,
 }
 
 /// <summary>
@@ -108,6 +110,25 @@ public static class Pad
                 }
             }
         }
+        // Hot-plug: forget anything a pad held when it goes away, so no button or direction sticks.
+        Input.Singleton.JoyConnectionChanged += (device, connected) =>
+        {
+            Lightcone.Host.AppLog.Info($"pad {device} {(connected ? "connected" : "disconnected")}; pads: {DescribePads()}");
+            foreach (var down in _buttonDown.Values)
+            {
+                down.Remove((int)device);
+            }
+            _sticks.Remove((int)device);
+            if (!connected && _glyphDevice == device)
+            {
+                _glyphDevice = -1;
+            }
+            if (!connected)
+            {
+                _dpadHeld.Clear();
+                _held = null;
+            }
+        };
         AddKeyAction(TabPrev, Key.Q, Key.Pageup);
         AddKeyAction(TabNext, Key.E, Key.Pagedown);
         AddKeyAction(Secondary, Key.R);
@@ -171,7 +192,20 @@ public static class Pad
                 SetFamily(PadFamily.Keyboard);
                 return false;
             case InputEventJoypadButton jb:
+                if (IsDuplicate(jb))
+                {
+                    return true;
+                }
                 LastDevice = jb.Device;
+                if (jb.Device != _glyphDevice)
+                {
+                    _glyphDevice = jb.Device;
+                    _padGlyphs = GlyphFamilyOf(jb.Device);
+                    if (LastFamily != PadFamily.Keyboard)
+                    {
+                        FamilyChanged?.Invoke();
+                    }
+                }
                 SetFamily(FamilyOf(jb.Device));
                 var action = ActionFor(jb.ButtonIndex, LastFamily);
                 if (action == null)
@@ -223,6 +257,44 @@ public static class Pad
             default:
                 return false;
         }
+    }
+
+    // The same physical controller can show up as two joypads: in Game Mode Steam Input exposes
+    // a virtual pad while SDL also sees the raw device, so every button arrives twice (the stick
+    // doesn't double, since it's read as state). A button counts as held while any device holds
+    // it: a press only counts if no other device already holds that button and the same button
+    // wasn't pressed on another device a moment ago; a release only counts once every device has
+    // let go.
+    private static readonly Dictionary<JoyButton, HashSet<int>> _buttonDown = new();
+    private static readonly Dictionary<JoyButton, (int Device, ulong At)> _lastPress = new();
+    private const ulong EchoWindowMs = 80;
+
+    private static bool IsDuplicate(InputEventJoypadButton jb)
+    {
+        if (!_buttonDown.TryGetValue(jb.ButtonIndex, out var down))
+        {
+            _buttonDown[jb.ButtonIndex] = down = new HashSet<int>();
+        }
+        var now = Time.GetTicksMsec();
+        if (jb.Pressed)
+        {
+            var othersHolding = down.Any(d => d != jb.Device);
+            var already = !down.Add(jb.Device);
+            // Another device echoing this press a moment later.
+            var echo = _lastPress.TryGetValue(jb.ButtonIndex, out var last) && last.Device != jb.Device && now - last.At < EchoWindowMs;
+            if (othersHolding || already || echo)
+            {
+                return true;
+            }
+            _lastPress[jb.ButtonIndex] = (jb.Device, now);
+            return false;
+        }
+        if (!down.Remove(jb.Device))
+        {
+            // Release from a device whose press we never saw (or an echo already released).
+            return down.Count > 0 || (_lastPress.TryGetValue(jb.ButtonIndex, out var l) && l.Device != jb.Device);
+        }
+        return down.Count > 0;
     }
 
     private static string? ActionFor(JoyButton b, PadFamily family)
@@ -326,6 +398,7 @@ public static class Pad
     public static void ReleaseAll()
     {
         _dpadHeld.Clear();
+        _buttonDown.Clear();
         _sticks.Clear();
         _triggerHeld.Clear();
         _held = null;
@@ -367,8 +440,106 @@ public static class Pad
             string.Join("; ", pads.Select(p => $"{p.Name} [{p.Vendor:x4}:{p.Product:x4}, {(p.Guid.Length > 0 ? p.Guid : "no guid")}]"));
     }
 
-    /// <summary>Which button set to draw: handhelds show Xbox glyphs even when Steam sends keys.</summary>
-    public static PadFamily GlyphFamily => LastFamily == PadFamily.Keyboard && IsHandheld ? PadFamily.Xbox : LastFamily;
+    /// <summary>Settings → Layout → Button glyphs: "auto", "xbox", "playstation", "nintendo" or "deck".</summary>
+    public static string GlyphStyle
+    {
+        get => _glyphStyle;
+        set
+        {
+            if (value != _glyphStyle)
+            {
+                _glyphStyle = value;
+                FamilyChanged?.Invoke();
+            }
+        }
+    }
+
+    private static string _glyphStyle = "auto";
+    private static PadFamily _padGlyphs = PadFamily.Xbox;
+    private static int _glyphDevice = -1;
+
+    private static PadFamily Parse(string f) => f switch
+    {
+        "playstation" => PadFamily.PlayStation,
+        "nintendo" => PadFamily.Nintendo,
+        "deck" => PadFamily.Deck,
+        _ => PadFamily.Xbox,
+    };
+
+    /// <summary>
+    /// The buttons printed on the pad in use: the real controller behind Steam's virtual gamepad
+    /// (Steam Input), else its USB vendor or name; the Deck's own controls on a Deck.
+    /// </summary>
+    public static PadFamily GlyphFamilyOf(int device)
+    {
+        var name = Input.GetJoyName(device);
+        var info = Input.GetJoyInfo(device);
+        int Id(string k) => info.TryGetValue(k, out var v) ? v.AsInt32() : 0;
+        if (Lightcone.Host.SteamPads.FamilyOfVendor(Id("vendor_id"), Id("product_id")) is { } byVendor)
+        {
+            return Parse(byVendor);
+        }
+        if (name.Contains("Steam Virtual", StringComparison.OrdinalIgnoreCase) || Id("vendor_id") == 0x28de)
+        {
+            var pads = Lightcone.Host.SteamPads.VirtualPads();
+            var slot = Input.GetConnectedJoypads().IndexOf(device);
+            if (pads.Count > 0)
+            {
+                return Parse(pads[Math.Clamp(slot, 0, pads.Count - 1)]);
+            }
+            return IsDeck ? PadFamily.Deck : PadFamily.Xbox;
+        }
+        var byName = Parse(Lightcone.Host.SteamPads.FamilyOf(name));
+        return byName == PadFamily.Xbox && IsDeck && name.Contains("Deck", StringComparison.OrdinalIgnoreCase) ? PadFamily.Deck : byName;
+    }
+
+    /// <summary>The detected glyph set, for Settings.</summary>
+    public static string GlyphFamilyName() => (LastFamily == PadFamily.Keyboard ? (IsDeck ? PadFamily.Deck : IsHandheld ? PadFamily.Xbox : PadFamily.Keyboard) : _padGlyphs) switch
+    {
+        PadFamily.PlayStation => "PlayStation",
+        PadFamily.Nintendo => "Nintendo",
+        PadFamily.Deck => "Steam Deck",
+        PadFamily.Keyboard => "keyboard",
+        _ => "Xbox",
+    };
+
+    /// <summary>True on a Steam Deck (LCD or OLED).</summary>
+    public static bool IsDeck { get; } = DetectDeck();
+
+    private static bool DetectDeck()
+    {
+        try
+        {
+            var product = File.Exists("/sys/class/dmi/id/product_name") ? File.ReadAllText("/sys/class/dmi/id/product_name") : "";
+            return product.Contains("Jupiter") || product.Contains("Galileo");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Which button set to draw: the chosen style, else the detected pad; handhelds show pad glyphs even when Steam sends keys.</summary>
+    public static PadFamily GlyphFamily
+    {
+        get
+        {
+            var pad = LastFamily != PadFamily.Keyboard || IsHandheld;
+            if (!pad)
+            {
+                return PadFamily.Keyboard;
+            }
+            if (_glyphStyle != "auto")
+            {
+                return Parse(_glyphStyle);
+            }
+            if (LastFamily == PadFamily.Keyboard)
+            {
+                return IsDeck ? PadFamily.Deck : PadFamily.Xbox;
+            }
+            return _padGlyphs;
+        }
+    }
 
     /// <summary>The label printed on the button for an action, for the current controller.</summary>
     public static string Glyph(string action) => (GlyphFamily, action) switch
@@ -385,6 +556,12 @@ public static class Pad
         (PadFamily.Keyboard, SeekForward) => "L",
         (PadFamily.PlayStation, Menu) => "Options",
         (PadFamily.Nintendo, Menu) => "+",
+        (PadFamily.Deck, Menu) => "☰",
+        (PadFamily.Deck, SeekBack) => "L2",
+        (PadFamily.Deck, SeekForward) => "R2",
+        (PadFamily.Deck, Switch) => "⧉",
+        (PadFamily.Deck, TabPrev) => "L1",
+        (PadFamily.Deck, TabNext) => "R1",
         (_, Menu) => "Menu",
         (PadFamily.PlayStation, SeekBack) => "L2",
         (PadFamily.PlayStation, SeekForward) => "R2",

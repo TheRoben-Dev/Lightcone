@@ -10,7 +10,7 @@ namespace Lightcone.Host;
 public sealed record AppSettings
 {
     /// <summary>UI theme id (see the app's theme list); unknown ids fall back to the default.</summary>
-    public string Theme { get; init; } = "dark";
+    public string Theme { get; init; } = "lightcone";
 
     /// <summary>Accent colour per theme id (a swatch id from the app's list); missing = the theme's own.</summary>
     public Dictionary<string, string> Accents { get; init; } = new();
@@ -38,6 +38,12 @@ public sealed record AppSettings
 
     /// <summary>A light rumble on the pad for menu moves, presses and errors.</summary>
     public bool Haptics { get; init; } = true;
+
+    /// <summary>The film-reel-into-projector animation (with its sounds) while a movie or episode loads.</summary>
+    public bool ProjectorIntro { get; init; } = true;
+
+    /// <summary>A behind-the-scenes fact on movie and show pages, looked up on Wikipedia (sends the title).</summary>
+    public bool Trivia { get; init; } = true;
 
     /// <summary>Music in Lightcone (its tab, Home rows and search). Movies and TV are the main thing; this can go.</summary>
     public bool MusicTab { get; init; } = true;
@@ -69,6 +75,71 @@ public sealed record AppSettings
     /// <summary>Jump past marked intros without a press.</summary>
     public bool AutoSkipIntro { get; init; }
 
+    /// <summary>Seconds the Up next card counts down before the next episode plays; 0 = no autoplay.</summary>
+    public int UpNextSeconds { get; init; } = 10;
+
+    /// <summary>Ask "Still watching?" after this many episodes play by themselves in a row; 0 = never.</summary>
+    public int StillWatchingAfter { get; init; } = 3;
+
+    /// <summary>Night mode: evens out loud action against quiet dialogue (a compressor on the sound).</summary>
+    public bool NightMode { get; init; }
+
+    /// <summary>Clear voices: dialogue lifted above music and effects.</summary>
+    public bool ClearVoices { get; init; }
+
+    /// <summary>Hide unwatched episodes' thumbnails and summaries.</summary>
+    public bool HideSpoilers { get; init; }
+
+    /// <summary>Resume a few seconds early (more after a long break) to catch the last line again.</summary>
+    public bool SmartResume { get; init; } = true;
+
+    /// <summary>Home row sections in the order picked in Settings → Home (see MediaLibrary.HomeSections).</summary>
+    public List<string> HomeOrder { get; init; } = [];
+
+    /// <summary>Home row sections turned off.</summary>
+    public List<string> HomeHidden { get; init; } = [];
+
+    /// <summary>Streaming quality at home (the server on this network): "original" plays the file as is, else a QualityPolicy id.</summary>
+    public string Quality { get; init; } = "original";
+
+    /// <summary>Streaming quality away from home (a remote or relayed server).</summary>
+    public string QualityAway { get; init; } = "8000";
+
+    /// <summary>Subtitle text colour: white, yellow, cyan.</summary>
+    public string SubtitleColor { get; init; } = "white";
+
+    /// <summary>Subtitle look: "outline" (text with a dark edge) or "box" (on a dark background).</summary>
+    public string SubtitleStyle { get; init; } = "outline";
+
+    /// <summary>How high subtitles sit: 100 = the bottom edge, smaller = higher.</summary>
+    public int SubtitlePosition { get; init; } = 100;
+
+    public bool SubtitleBold { get; init; }
+
+    /// <summary>Phone remote: a small web page on this network (with a PIN) that controls Lightcone.</summary>
+    public bool RemoteEnabled { get; init; }
+
+    /// <summary>The phone remote's PIN (made when it's first turned on).</summary>
+    public string? RemotePin { get; init; }
+
+    /// <summary>Downloads: "original" (the file as is) or a QualityPolicy id to convert to.</summary>
+    public string DownloadQuality { get; init; } = "original";
+
+    /// <summary>Where downloads go; null = Lightcone's data folder.</summary>
+    public string? DownloadFolder { get; init; }
+
+    /// <summary>Ambient mode (artwork slideshow and clock) after this many idle minutes on the menus; 0 = never.</summary>
+    public int AmbientMinutes { get; init; } = 5;
+
+    /// <summary>Button glyphs: "auto" (detect the controller, through Steam Input too), "xbox", "playstation", "nintendo", "deck".</summary>
+    public string GlyphStyle { get; init; } = "auto";
+
+    /// <summary>Interface language: "auto" (the system's), "en" or "sv".</summary>
+    public string Language { get; init; } = "auto";
+
+    /// <summary>Recap the last episode before playing a show after this many days away; -1 = never, 0 = every time.</summary>
+    public int RecapAfterDays { get; init; } = 7;
+
     /// <summary>Update channel: "stable" (releases) or "test" (test builds too); null = test for a test build, else stable.</summary>
     public string? UpdateChannel { get; init; }
 
@@ -97,6 +168,12 @@ public sealed class AppHost
     public AppUpdater Updater { get; }
     public MediaLibrary Library { get; }
 
+    /// <summary>Offline downloads (downloads.json; files in Settings.DownloadFolder or the data folder).</summary>
+    public Downloads Downloads { get; }
+
+    /// <summary>"Did you know?" facts for detail pages (Wikipedia, cached in trivia.json).</summary>
+    public Trivia Trivia { get; }
+
     /// <summary>The Plex account and its servers (sources in <see cref="Library"/>).</summary>
     public Plex.PlexService Plex { get; }
 
@@ -117,7 +194,7 @@ public sealed class AppHost
         {
             Updater.TestChannel = channel == "test";
         }
-        Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile), new UserLists(Path.Combine(Paths.Data, "lists.json")))
+        Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile), new UserLists(Path.Combine(Paths.Data, "lists.json")), new WatchHistory(Path.Combine(Paths.Data, "history.json")))
         {
             Music = Settings.MusicTab,
             AutoCollections = Settings.AutoCollections,
@@ -125,6 +202,8 @@ public sealed class AppHost
         ApplyDemo(Settings.DemoLibrary);
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
         Jellyfin = new Jellyfin.JellyfinService(Library, Paths.Config, Paths.Data, http);
+        Downloads = new Downloads(Path.Combine(Paths.Data, "downloads.json"), () => Settings.DownloadFolder ?? Path.Combine(Paths.Data, "downloads"));
+        Trivia = new Trivia(Path.Combine(Paths.Data, "trivia-v2.json"));  // v2: stricter sentence picking
     }
 
     /// <summary>Adds or removes the sample library.</summary>

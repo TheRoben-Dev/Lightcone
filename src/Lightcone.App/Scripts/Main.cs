@@ -53,6 +53,8 @@ public partial class Main : Control
     private AnimatedBackground? _animBg;
     private Scanlines? _crt;
     private ulong _navAtMs;
+    private AmbientMode _ambient = null!;
+    private double _idle;
     private Feedback? _feedback;
 
     public static Main Instance { get; private set; } = null!;
@@ -64,6 +66,12 @@ public partial class Main : Control
     public string CurrentTab => TabNames[_tab];
 
     public Screen Top => _stack[^1];
+
+    /// <summary>Seconds since the last button, key, click or stick move.</summary>
+    public double IdleSeconds => _idle;
+
+    /// <summary>The page on top, or null before the first one.</summary>
+    public Screen? TopOrNull => _stack.Count > 0 ? _stack[^1] : null;
 
     /// <summary>True while a full-screen page (the player) is up: background scenes stop rendering.</summary>
     public bool FullScreenActive => _stack.Any(s => s.FullScreen && s.Visible);
@@ -110,10 +118,14 @@ public partial class Main : Control
             host.SaveSettings(host.Settings with { DemoLibrary = true });
             host.ApplyDemo(true);
         }
-        var startTheme = host?.Settings.Theme ?? "dark";
+        var startTheme = host?.Settings.Theme ?? "lightcone";
         AppLog.Info($"{Lightcone.Core.Platform.Name}, theme {startTheme}, window {DisplayServer.WindowGetSize()}, driver {RenderingServer.GetCurrentRenderingDriverName()} on {DisplayServer.GetName()}, pads: {Pad.DescribePads()}");
         UiTheme.Use(startTheme, host?.Settings.Accents.GetValueOrDefault(startTheme));
         Anim.Enabled = !(host?.Settings.ReduceMotion ?? false);
+        Loc.Apply(host?.Settings.Language ?? "auto");
+        Pad.GlyphStyle = host?.Settings.GlyphStyle ?? "auto";
+        var steamPads = Lightcone.Host.SteamPads.VirtualPads();
+        AppLog.Info($"language {Loc.Current}, glyphs {Pad.GlyphStyle}{(steamPads.Count > 0 ? ", Steam Input pads: " + string.Join(", ", steamPads) : "")}");
         Theme = UiTheme.Build();
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         Host = host;
@@ -124,6 +136,7 @@ public partial class Main : Control
         BuildBackground();
         _player = new PlayerService();
         AddChild(_player);
+        AddChild(new PhoneRemote());
 
         _chrome = new Control { MouseFilter = MouseFilterEnum.Ignore };
         _chrome.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -143,6 +156,10 @@ public partial class Main : Control
         _overlay.AddChild(_backdrop);
         _highlight = new FocusHighlight();
         AddChild(_highlight);
+        _ambient = new AmbientMode();
+        var ambientLayer = new CanvasLayer { Layer = 50 };
+        ambientLayer.AddChild(_ambient);
+        AddChild(ambientLayer);
         _toast = new Toast();
         AddChild(_toast);
         _feedback = new Feedback(UiTheme.Name)
@@ -159,8 +176,23 @@ public partial class Main : Control
         }
         UiLayout.Apply(GetWindow(), host?.Settings.Layout, windowed);
         BuildChrome();
+        AppLog.Info("display: " + DisplayCheck.Describe());
+        if (DisplayCheck.SteamResolutionTip() is { } tip)
+        {
+            AppLog.Warn(tip);  // also shown in Settings → Layout; no pop-up
+        }
 
         GetViewport().GuiFocusChanged += c => _hints?.SetHelp(c.HasMeta(Stepper.ExpandsMeta) || c.HasMeta(PosterTile.NoHelp) ? "" : c.TooltipText.Split('\n')[0]);
+        // The tile you're on gets its "Did you know?" fact looked up first, so its page has it ready.
+        GetViewport().GuiFocusChanged += c =>
+        {
+            if (c is PosterTile { Item: var item } && Host?.Settings.Trivia == true)
+            {
+                Host.Trivia.Prefetch([item], soon: true);
+            }
+        };
+        // Some hints depend on what has focus (an episode row offers "Episode watched").
+        GetViewport().GuiFocusChanged += _ => CallDeferred(MethodName.UpdateChrome);
         GetViewport().GuiFocusChanged += _ =>
         {
             if (Time.GetTicksMsec() - _navAtMs < 250)
@@ -183,6 +215,16 @@ public partial class Main : Control
         _ = Host.Plex.RefreshAllAsync();
         _ = Host.Jellyfin.RefreshAllAsync();
         _player.Changed += () => Callable.From(UpdatePlaying).CallDeferred();
+        // Downloads carry on from last time; what was watched offline goes back to the servers once they answer.
+        Host.Downloads.Kick();
+        var sync = new Godot.Timer { WaitTime = 60, Autostart = true };
+        sync.Timeout += () => Host.Downloads.SyncBack(Host.Library);
+        AddChild(sync);
+        Host.Library.Changed += () => Callable.From(() => Host.Downloads.SyncBack(Host.Library)).CallDeferred();
+        Host.Downloads.StateChanged += e => Callable.From(() => NoteDownload(e)).CallDeferred();
+        Host.Library.Changed += () => Callable.From(PrefetchTrivia).CallDeferred();
+        PrefetchTrivia();
+        _player.SleepFired += () => Callable.From(() => Toast("Sleep timer: playback stopped. Your spot is saved.")).CallDeferred();
 
         if (args.Contains("--open=appearance"))
         {
@@ -657,6 +699,7 @@ public partial class Main : Control
     /// <summary>Releases Godot objects that C# statics keep alive, while .NET is still running.</summary>
     public override void _ExitTree()
     {
+        IdleInhibit.Release();
         try
         {
             if (Host != null && File.Exists(Host.PidFile))
@@ -701,6 +744,17 @@ public partial class Main : Control
 
     public override void _Input(InputEvent e)
     {
+        if (IsUserInput(e))
+        {
+            _idle = 0;
+            if (_ambient.Showing)
+            {
+                // Waking up only wakes up: the press doesn't also act on the menus.
+                _ambient.End();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
         if (e is InputEventAction or InputEventKey && e.IsPressed() && !e.IsEcho())
         {
             if (e.IsAction("ui_up") || e.IsAction("ui_down") || e.IsAction("ui_left") || e.IsAction("ui_right"))
@@ -743,8 +797,43 @@ public partial class Main : Control
         }
     }
 
+    private static bool IsUserInput(InputEvent e) => e switch
+    {
+        InputEventKey or InputEventMouseButton or InputEventJoypadButton or InputEventScreenTouch or InputEventAction => e.IsPressed(),
+        InputEventJoypadMotion m => Math.Abs(m.AxisValue) > 0.5f,
+        InputEventMouseMotion mm => mm.Relative.Length() > 4,
+        _ => false,
+    };
+
+    /// <summary>Starts ambient mode now (also after Settings' idle minutes on the menus).</summary>
+    public void ShowAmbient()
+    {
+        if (!_ambient.Showing && Host != null)
+        {
+            _ambient.Begin(Host.Library.All);
+        }
+    }
+
+    private void CheckIdle(double delta)
+    {
+        _idle += delta;
+        var minutes = Host?.Settings.AmbientMinutes ?? 0;
+        if (minutes <= 0 || _ambient.Showing || _idle < minutes * 60 || _player.Current != null || _stack.Count == 0 || _stack[^1] is PlayerScreen or TextEntryPage)
+        {
+            return;
+        }
+        ShowAmbient();
+    }
+
     public override void _Process(double delta)
     {
+        CheckIdle(delta);
+        if (_toast.Visible || _stack.Count == 0 || _stack[^1] is not PlayerScreen)
+        {
+            _player.Paced = false;  // anything else on screen runs at the display's rate
+        }
+        // No screen dimming, screensaver or sleep while a video plays (paused or stopped: normal).
+        IdleInhibit.Update(_player.Active && _player.HasVideo && !_player.Paused);
         if (_appFocused)
         {
             TouchScroll.Process(delta);
@@ -1088,6 +1177,52 @@ public partial class Main : Control
     // ---- feedback ----
 
     public void Toast(string text) => _toast.Show(text);
+
+    public bool ToastShowing => _toast.Visible;
+
+    private ulong _triviaAt;
+
+    /// <summary>
+    /// Looks up "Did you know?" facts in the background for what's likely to be opened: what you're
+    /// watching, then the newest movies and shows. At most once a minute (the library changes often
+    /// while it loads); the trivia queue itself goes one title at a time.
+    /// </summary>
+    private void PrefetchTrivia()
+    {
+        if (Host is not { Settings.Trivia: true } host || Time.GetTicksMsec() - _triviaAt < 60_000 && _triviaAt != 0)
+        {
+            return;
+        }
+        var lib = host.Library;
+        var watching = lib.Section(Lightcone.Host.Library.MediaKind.Movie, filter: Lightcone.Host.Library.WatchFilter.InProgress)
+            .Concat(lib.Section(Lightcone.Host.Library.MediaKind.Show, filter: Lightcone.Host.Library.WatchFilter.InProgress));
+        var newest = lib.Section(Lightcone.Host.Library.MediaKind.Movie, Lightcone.Host.Library.SortKey.Added, descending: true).Take(60)
+            .Concat(lib.Section(Lightcone.Host.Library.MediaKind.Show, Lightcone.Host.Library.SortKey.Added, descending: true).Take(40));
+        var all = watching.Concat(newest).ToList();
+        if (all.Count > 0)
+        {
+            _triviaAt = Time.GetTicksMsec();  // nothing loaded yet: try again on the next change
+            host.Trivia.Prefetch(all);
+        }
+    }
+
+    /// <summary>A download started, finished or failed: say so (not while watching something).</summary>
+    private void NoteDownload(Lightcone.Host.Library.DownloadEntry e)
+    {
+        var watching = _stack.Count > 0 && _stack[^1] is PlayerScreen;
+        switch (e.State)
+        {
+            case Lightcone.Host.Library.DownloadState.Downloading when !watching:
+                Toast($"Downloading {e.Item.Title}");
+                break;
+            case Lightcone.Host.Library.DownloadState.Done when !watching:
+                Toast($"Downloaded {e.Item.Title}");
+                break;
+            case Lightcone.Host.Library.DownloadState.Failed:
+                Error($"Download failed: {e.Error}");
+                break;
+        }
+    }
 
     public void Error(string text)
     {

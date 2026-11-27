@@ -28,6 +28,19 @@ public static class ResumePolicy
     public static bool IsWatched(double position, double? duration) =>
         duration is > 0 && position / duration.Value >= WatchedFraction;
 
+    /// <summary>
+    /// Smart resume: how far before the saved spot to start, so the last line is heard again.
+    /// 5 seconds after a short pause, 10 after a day away, 20 after three days, 30 after a week.
+    /// </summary>
+    public static double Rewind(TimeSpan? away) => away switch
+    {
+        null => 5,
+        { TotalDays: >= 7 } => 30,
+        { TotalDays: >= 3 } => 20,
+        { TotalDays: >= 1 } => 10,
+        _ => 5,
+    };
+
     /// <summary>Progress bar fraction for a tile, 0..1; null hides the bar.</summary>
     public static double? Progress(double? position, double? duration) =>
         position is > 0 && duration is > 0 ? Math.Clamp(position.Value / duration.Value, 0, 1) : null;

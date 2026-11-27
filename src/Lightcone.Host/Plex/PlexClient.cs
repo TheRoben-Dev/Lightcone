@@ -76,11 +76,31 @@ public sealed class PlexClient
         return JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token));
     }
 
+    /// <summary>Downloads a file (seek preview index) with the token.</summary>
+    public async Task<byte[]> GetBytesAsync(string url, string token, CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, url, token);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadAsByteArrayAsync(ct);
+    }
+
     /// <summary>A plain GET/PUT for reporting (timeline, scrobble); errors are the caller's to ignore.</summary>
     public async Task SendAsync(HttpMethod method, string url, string token, CancellationToken ct = default)
     {
         using var req = Request(method, url, token);
         using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>A Plex Companion command to a player (directly, or through the server), aimed with X-Plex-Target-Client-Identifier.</summary>
+    public async Task SendToPlayerAsync(string url, string token, string target, CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, url, token);
+        req.Headers.TryAddWithoutValidation("X-Plex-Target-Client-Identifier", target);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(6));
+        using var resp = await _http.SendAsync(req, cts.Token);
         resp.EnsureSuccessStatusCode();
     }
 

@@ -8,20 +8,36 @@ public enum SortKey
     Duration,
 }
 
+/// <summary>Which titles a Movies or Shows page lists, by watched state.</summary>
+public enum WatchFilter
+{
+    All,
+
+    /// <summary>Movies not watched; shows with episodes left.</summary>
+    Unwatched,
+
+    /// <summary>Movies part watched; shows started but not finished.</summary>
+    InProgress,
+
+    /// <summary>Movies watched; shows with every episode watched.</summary>
+    Watched,
+}
+
 /// <summary>
 /// Every source's items in one place, plus what the home screen shows. Both UI modes read
 /// from here, which is what keeps them at feature parity.
 /// </summary>
-public sealed class MediaLibrary
+public sealed partial class MediaLibrary
 {
     // Copy-on-write: sources are added from background work (a Plex sign-in) while the UI reads.
     private volatile IReadOnlyList<IMediaSource> _sources = [];
     private readonly object _gate = new();
 
-    public MediaLibrary(ProgressStore progress, UserLists? lists = null)
+    public MediaLibrary(ProgressStore progress, UserLists? lists = null, WatchHistory? history = null)
     {
         Progress = progress;
         Lists = lists ?? new UserLists(null);
+        History = history ?? new WatchHistory(null);
         Lists.Changed += OnSourceChanged;
     }
 
@@ -29,6 +45,9 @@ public sealed class MediaLibrary
 
     /// <summary>The watchlist and collections kept on this device.</summary>
     public UserLists Lists { get; }
+
+    /// <summary>Time watched in Lightcone, per item per day (the stats page).</summary>
+    public WatchHistory History { get; }
 
     private bool _music = true;
 
@@ -122,8 +141,131 @@ public sealed class MediaLibrary
         IsCollection(id) ? Collections().FirstOrDefault(c => c.Id == id) : All.FirstOrDefault(i => i.Id == id);
 
     /// <summary>Top-level items of a section: movies, shows, albums (tracks and episodes live under their parent).</summary>
-    public IReadOnlyList<MediaItem> Section(MediaKind kind, SortKey sort = SortKey.Title, bool descending = false) =>
-        SortWithShows(All.Where(i => i.Kind == kind && Visible(i)), sort, descending);
+    public IReadOnlyList<MediaItem> Section(MediaKind kind, SortKey sort = SortKey.Title, bool descending = false, WatchFilter filter = WatchFilter.All) =>
+        SortWithShows(All.Where(i => i.Kind == kind && Visible(i) && Matches(i, filter)), sort, descending);
+
+    /// <summary>Whether a movie or show passes a watched-state filter (anything else always does).</summary>
+    public bool Matches(MediaItem item, WatchFilter filter)
+    {
+        if (filter == WatchFilter.All || item.Kind is not (MediaKind.Movie or MediaKind.Show))
+        {
+            return true;
+        }
+        if (item.Kind == MediaKind.Movie)
+        {
+            var watched = IsWatched(item);
+            return filter switch
+            {
+                WatchFilter.Unwatched => !watched,
+                WatchFilter.InProgress => !watched && PositionOf(item) != null,
+                _ => watched,
+            };
+        }
+        var eps = Children(item.Id).Where(e => e.Playable).ToList();
+        var seen = eps.Count(IsWatched);
+        var left = eps.Count - seen;
+        return filter switch
+        {
+            WatchFilter.Unwatched => left > 0 || eps.Count == 0,
+            WatchFilter.InProgress => left > 0 && (seen > 0 || eps.Any(e => PositionOf(e) != null)),
+            _ => eps.Count > 0 && left == 0,
+        };
+    }
+
+    /// <summary>
+    /// When the item was last played, on this device or (per its server) anywhere: finished,
+    /// paused part way, or the server's last-played date. Null when it never was, as far as we know.
+    /// </summary>
+    public DateTime? LastViewed(MediaItem item)
+    {
+        DateTime? best = null;
+        void Take(DateTime? t)
+        {
+            if (t is { } v && v > DateTime.MinValue && (best == null || v > best))
+            {
+                best = v;
+            }
+        }
+        Take(Progress.WatchedAt(item.Id));
+        Take(Progress.Get(item.Id)?.At);
+        var source = SourceOf(item);
+        Take(source?.ServerLastViewed(item.Id));
+        Take(source?.ServerProgress(item.Id)?.At);
+        return best;
+    }
+
+    /// <summary>When any episode of a show was last played (see <see cref="LastViewed"/>).</summary>
+    public DateTime? ShowLastViewed(MediaItem show) =>
+        Children(show.Id).Select(LastViewed).Where(t => t != null).DefaultIfEmpty(null).Max();
+
+    /// <summary>The episode before this one in its show (by season and number), or null for the first.</summary>
+    public MediaItem? PreviousEpisode(MediaItem episode)
+    {
+        if (episode.ParentId == null)
+        {
+            return null;
+        }
+        var eps = Children(episode.ParentId).Where(e => e.Playable && (e.Season != 0 || episode.Season == 0)).ToList();
+        var i = eps.FindIndex(e => e.Id == episode.Id);
+        return i > 0 ? eps[i - 1] : null;
+    }
+
+    /// <summary>
+    /// "What should I watch?": a random unwatched movie, or a show with episodes left (its next
+    /// episode is what plays). Watchlist titles and shows already started come up more often.
+    /// <paramref name="maxMinutes"/> limits a movie's length, or a show's episode length.
+    /// </summary>
+    public MediaItem? Surprise(Random random, bool movies = true, bool shows = true, int? maxMinutes = null, ICollection<string>? skip = null)
+    {
+        var pool = new List<(MediaItem Item, int Weight)>();
+        foreach (var item in All.Where(i => (movies && i.Kind == MediaKind.Movie || shows && i.Kind == MediaKind.Show) && Visible(i)).DistinctBy(i => i.Id))
+        {
+            if (skip?.Contains(item.Id) == true)
+            {
+                continue;
+            }
+            var weight = 2;
+            double? length;
+            if (item.Kind == MediaKind.Movie)
+            {
+                if (!item.Playable || IsWatched(item))
+                {
+                    continue;
+                }
+                length = item.Duration;
+                weight += PositionOf(item) != null ? 2 : 0;
+            }
+            else
+            {
+                if (UnwatchedCount(item) is not > 0 || NextToPlay(item) is not { } next)
+                {
+                    continue;
+                }
+                length = next.Duration;
+                weight += Children(item.Id).Any(IsWatched) ? 2 : 0;
+            }
+            if (maxMinutes is { } max && length is { } len && len > max * 60)
+            {
+                continue;
+            }
+            weight += OnWatchlist(item) ? 3 : 0;
+            pool.Add((item, weight));
+        }
+        if (pool.Count == 0)
+        {
+            return null;
+        }
+        var roll = random.Next(pool.Sum(p => p.Weight));
+        foreach (var (item, w) in pool)
+        {
+            roll -= w;
+            if (roll < 0)
+            {
+                return item;
+            }
+        }
+        return pool[^1].Item;
+    }
 
     public IReadOnlyList<MediaItem> Children(string parentId) =>
         IsCollection(parentId) ? CollectionItems(parentId) : (_byParent ??= BuildByParent()).GetValueOrDefault(parentId) ?? [];
@@ -312,6 +454,24 @@ public sealed class MediaLibrary
         }
         return result.OrderByDescending(r => r.At).ThenByDescending(r => r.Added).Select(r => r.Next).ToList();
     }
+
+    /// <summary>Cast, crew and extras of a movie or show (from its server), or null.</summary>
+    public async Task<ItemDetails?> DetailsAsync(MediaItem item, CancellationToken ct = default) =>
+        SourceOf(item) is { } source ? await source.DetailsAsync(item, ct) : null;
+
+    /// <summary>Movies and shows in the library a person is in, newest first.</summary>
+    public async Task<IReadOnlyList<MediaItem>> TitlesWithAsync(Person person, CancellationToken ct = default)
+    {
+        if (_sources.FirstOrDefault(s => s.Id == person.SourceId) is not { } source)
+        {
+            return [];
+        }
+        var ids = (await source.TitlesWithAsync(person, ct)).ToHashSet();
+        return All.Where(i => ids.Contains(i.Id) && Visible(i)).DistinctBy(i => i.Id).OrderByDescending(i => i.Year ?? 0).ThenBy(i => SortTitle(i.Title), StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>Seek bar thumbnails for an item, when its server has them (after <see cref="PrepareAsync"/>).</summary>
+    public SeekPreview? PreviewOf(MediaItem item) => SourceOf(item)?.PreviewOf(item.Id);
 
     public IReadOnlyList<Marker> MarkersOf(MediaItem item) =>
         _sources.FirstOrDefault(s => s.Id == item.SourceId)?.MarkersOf(item.Id) ?? [];

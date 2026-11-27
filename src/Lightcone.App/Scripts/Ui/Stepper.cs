@@ -12,6 +12,12 @@ namespace Lightcone.App.Ui;
 /// </summary>
 public partial class Stepper : Button
 {
+    /// <summary>
+    /// Tooltips are for the desktop. In the controller layout the hidden mouse can still rest on a
+    /// card (after a touch), which would pop its title up over the art.
+    /// </summary>
+    public override string _GetTooltip(Vector2 atPosition) => UiLayout.Desktop ? TooltipText : "";
+
     public const string ExpandsMeta = "ed_expands";
     private const float RowHeight = 54;
 

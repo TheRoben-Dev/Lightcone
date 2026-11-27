@@ -80,7 +80,7 @@ internal static unsafe class MpvNative
     public const int FormatNone = 0, FormatString = 1, FormatFlag = 3, FormatInt64 = 4, FormatDouble = 5;
 
     // mpv_render_param_type
-    public const int RenderApiType = 1, RenderOpenGlInitParams = 2, RenderOpenGlFbo = 3, RenderFlipY = 4,
+    public const int RenderApiType = 1, RenderOpenGlInitParams = 2, RenderOpenGlFbo = 3, RenderFlipY = 4, RenderBlockForTargetTime = 12,
         RenderSwSize = 17, RenderSwFormat = 18, RenderSwStride = 19, RenderSwPointer = 20;
 
     [DllImport(Lib)] public static extern ulong mpv_client_api_version();

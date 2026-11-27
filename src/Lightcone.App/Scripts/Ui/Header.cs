@@ -46,6 +46,7 @@ public partial class Header : HBoxContainer
             }
         };
         AddChild(_game);
+        AddChild(new DownloadIndicator());
         AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         _tabRow.AddThemeConstantOverride("separation", 24);
         _tabRow.AddChild(_prev);
@@ -61,7 +62,7 @@ public partial class Header : HBoxContainer
                     TabClicked?.Invoke(index);
                 }
             };
-            var l = UiTheme.Label(UiTheme.Mono ? t.ToUpperInvariant() : t, UiTheme.Nightgrid ? 19 : 22);
+            var l = UiTheme.Label(UiTheme.Mono ? Loc.Upper(t) : t, UiTheme.Nightgrid ? 19 : 22);
             l.HorizontalAlignment = HorizontalAlignment.Center;
             l.MouseFilter = MouseFilterEnum.Ignore;
             l.AddThemeColorOverride("font_color", UiTheme.Dim);

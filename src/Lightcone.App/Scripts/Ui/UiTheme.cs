@@ -55,7 +55,14 @@ public static class UiTheme
 {
     public static readonly IReadOnlyList<ThemeSpec> Themes =
     [
-        new("dark", "Dark", "The default: calm dark panels with a violet accent.")
+        new("lightcone", "Lightcone", "The default: a projector beam in a dark auditorium, drifting dust and velvet-red accents.")
+        {
+            Bg = new("070608"), Panel = new("141013"), PanelHi = new("1f181d"), Line = new("2e2228"),
+            Accent = new("e0313f"), Text = new("f3ede4"), Dim = new("a0938c"),
+            Good = new("5fcf8a"), Warn = new("f4b552"), Bad = new("ff5b5b"), Info = new("ffd9a0"),
+            Shell = new("2a1d22"), Radius = 10, Glow = 0.15f, Wordmark = "LIGHTCONE", Tiles = (0.42f, 0.26f, 340, 60),
+        },
+        new("dark", "Dark", "Calm dark panels with a violet accent.")
         {
             Bg = new("0d0f14"), Panel = new("161a22"), PanelHi = new("1f2430"), Line = new("262c38"),
             Accent = new("7c6cff"), Text = new("e8eaf0"), Dim = new("8a91a3"),
