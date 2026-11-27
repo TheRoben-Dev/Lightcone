@@ -69,7 +69,7 @@ public class PlexTests : IDisposable
           {"ratingKey":"212","type":"episode","title":"Half Loop","grandparentRatingKey":"200","grandparentTitle":"Severance",
            "parentIndex":1,"index":2,"duration":3300000,"addedAt":1650000000,"Media":[{"Part":[{"key":"/library/parts/212/1/e2.mkv"}]}]},
           {"ratingKey":"221","type":"episode","title":"Hello, Ms. Cobel","grandparentRatingKey":"200","grandparentTitle":"Severance",
-           "parentIndex":2,"index":1,"duration":3500000,"addedAt":1700000000,"Media":[{"Part":[{"key":"/library/parts/221/1/s2e1.mkv"}]}]}]}}
+           "parentIndex":2,"parentTitle":"Season 2","parentThumb":"/library/metadata/220/thumb/5","index":1,"duration":3500000,"addedAt":1700000000,"Media":[{"Part":[{"key":"/library/parts/221/1/s2e1.mkv"}]}]}]}}
         """;
 
     private const string EpisodeMarkers = """
@@ -198,6 +198,12 @@ public class PlexTests : IDisposable
         Assert.Equal(["Good News About Hell", "Half Loop", "Hello, Ms. Cobel"], episodes.Select(e => e.Title));
         Assert.Equal("Severance · S2 · E1", episodes[2].Subtitle);
         Assert.Equal(2, episodes[2].Season);
+        Assert.Equal("Season 2", episodes[2].SeasonTitle);
+        Assert.Contains("url=%2Flibrary%2Fmetadata%2F220%2Fthumb%2F5", episodes[2].SeasonPosterUrl);
+        var seasons = lib.Seasons(lib.Find("plex:srv1:200")!);
+        Assert.Equal(["Season 1", "Season 2"], seasons.Select(x => x.Title));
+        Assert.Null(seasons[0].PosterUrl);
+        Assert.Equal(episodes[2].SeasonPosterUrl, seasons[1].PosterUrl);
 
         // Server state: Arrival half watched (continue watching), Heat watched, episode 1 watched.
         Assert.Equal(1800, lib.PositionOf(arrival));

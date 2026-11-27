@@ -61,6 +61,12 @@ public sealed record MediaItem
     /// <summary>Season number of an episode.</summary>
     public int? Season { get; init; }
 
+    /// <summary>The server's name for an episode's season ("Season 2", "Specials", "Book One: Water").</summary>
+    public string? SeasonTitle { get; init; }
+
+    /// <summary>Season poster to download for an episode, when the server has one.</summary>
+    public string? SeasonPosterUrl { get; init; }
+
     /// <summary>The server's global id ("plex://movie/5d77…"), used for its online watchlist.</summary>
     public string? Guid { get; init; }
 
@@ -89,6 +95,15 @@ public sealed record MediaItem
         }
         return t.TotalHours >= 1 ? $"{(int)t.TotalHours} h {t.Minutes} min" : $"{Math.Max(1, t.Minutes)} min";
     }
+}
+
+/// <summary>One season of a show, as its page lists it.</summary>
+/// <param name="Number">Season number (0 = specials), or null for episodes without one.</param>
+/// <param name="PosterUrl">The season's own poster, when the server has one.</param>
+public sealed record ShowSeason(int? Number, string Title, IReadOnlyList<MediaItem> Episodes, string? PosterUrl)
+{
+    /// <summary>Stable key for remembering the picked season (null season = -1).</summary>
+    public int Key => Number ?? -1;
 }
 
 /// <summary>A horizontal row on the home screen.</summary>

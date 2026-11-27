@@ -135,6 +135,35 @@ public sealed class MediaLibrary
         All.Where(i => i.ParentId != null).GroupBy(i => i.ParentId!).ToDictionary(g => g.Key, g => (IReadOnlyList<MediaItem>)g
             .OrderBy(i => i.Season ?? 0).ThenBy(i => i.Index ?? int.MaxValue).ThenBy(i => i.Title, StringComparer.CurrentCultureIgnoreCase).ToList());
 
+    /// <summary>
+    /// A show's episodes by season, in order: numbered seasons, then episodes without a season,
+    /// then specials (season 0) last, as most apps list them.
+    /// </summary>
+    public IReadOnlyList<ShowSeason> Seasons(MediaItem show) =>
+        Children(show.Id).GroupBy(e => e.Season)
+            .OrderBy(g => g.Key switch { null => 1, 0 => 2, _ => 0 }).ThenBy(g => g.Key)
+            .Select(g =>
+            {
+                var eps = g.OrderBy(e => e.Index ?? int.MaxValue).ThenBy(e => e.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+                var title = eps.Select(e => e.SeasonTitle).FirstOrDefault(t => t != null)
+                    ?? g.Key switch { 0 => "Specials", { } n => $"Season {n}", null => "Episodes" };
+                return new ShowSeason(g.Key, title, eps, eps.Select(e => e.SeasonPosterUrl).FirstOrDefault(u => u != null));
+            }).ToList();
+
+    /// <summary>
+    /// What "play" on a show or album starts: the one in progress, else the first not watched
+    /// (specials only once the regular seasons are done), else the first (null when nothing plays).
+    /// </summary>
+    public MediaItem? NextToPlay(MediaItem container)
+    {
+        var children = Children(container.Id).Where(c => c.Playable).ToList();
+        var regular = children.Where(c => c.Season != 0).ToList();
+        return children.FirstOrDefault(c => PositionOf(c) != null && !IsWatched(c))
+            ?? regular.FirstOrDefault(c => !IsWatched(c))
+            ?? children.FirstOrDefault(c => !IsWatched(c))
+            ?? regular.FirstOrDefault() ?? children.FirstOrDefault();
+    }
+
     /// <summary>Episodes of a show not watched yet (null for anything else).</summary>
     public int? UnwatchedCount(MediaItem item) =>
         item.Kind == MediaKind.Show ? Children(item.Id).Count(e => e.Playable && !IsWatched(e)) : null;

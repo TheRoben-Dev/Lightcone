@@ -3,6 +3,13 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.6.0
+
+- Show pages list seasons properly: a strip of season posters (from Plex or Jellyfin) with each season's episode count, a ✓ or how many are left, and a watched bar. Only the picked season's episodes show below, with thumbnails and a line of the plot, instead of one long list.
+- The page opens on the season you're in. Moving along the strip switches season; LT / RT (J / L on a keyboard) switch from anywhere on the page, and a click picks one in Desktop mode.
+- Y (or Mark season watched) marks a whole season watched or unwatched, and it syncs to the server.
+- The play button names the episode it starts ("▶ Resume S2 · E4"), and specials wait until the regular seasons are done instead of playing first.
+
 ## 0.5.0
 
 - Jellyfin: Sources → Jellyfin finds servers on your network (or type the address with the built-in keyboard), then sign in with Quick Connect: approve a 6-digit code from any device already signed in, no typing. User name and password work too.

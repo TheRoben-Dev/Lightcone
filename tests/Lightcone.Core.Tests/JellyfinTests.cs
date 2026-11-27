@@ -81,7 +81,7 @@ public class JellyfinTests : IDisposable
         {"Items":[
           {"Id":"s1","Name":"Severance","Type":"Series","ProductionYear":2022,"RecursiveItemCount":2,"ImageTags":{"Primary":"st"},"UserData":{"Played":false}},
           {"Id":"e1","Name":"Good News About Hell","Type":"Episode","SeriesId":"s1","SeriesName":"Severance","SeriesPrimaryImageTag":"st",
-           "ParentIndexNumber":1,"IndexNumber":1,"RunTimeTicks":34200000000,"UserData":{"Played":true}},
+           "SeasonId":"se1","SeasonName":"Season 1","ParentIndexNumber":1,"IndexNumber":1,"RunTimeTicks":34200000000,"UserData":{"Played":true}},
           {"Id":"e2","Name":"Half Loop","Type":"Episode","SeriesId":"s1","SeriesName":"Severance","ParentIndexNumber":1,"IndexNumber":2,
            "RunTimeTicks":33000000000,"ImageTags":{"Primary":"e2t"},"UserData":{"Played":false}}]}
         """;
@@ -160,6 +160,10 @@ public class JellyfinTests : IDisposable
         Assert.Contains("/Items/s1/Images/Primary", eps[0].PosterUrl);  // no own image: the show's
         Assert.Contains("/Items/e2/Images/Primary?fillWidth=640&fillHeight=360", eps[1].PosterUrl);
         Assert.True(lib.IsWatched(eps[0]));
+        Assert.Equal("Season 1", eps[0].SeasonTitle);
+        Assert.Equal($"{Url}/Items/se1/Images/Primary?fillWidth=400&fillHeight=600&quality=90", eps[0].SeasonPosterUrl);
+        Assert.Null(eps[1].SeasonPosterUrl);
+        Assert.Equal("Season 1", Assert.Single(lib.Seasons(lib.Find("jellyfin:f00dfeed:s1")!)).Title);
         Assert.Equal("2 episodes", lib.Find("jellyfin:f00dfeed:s1")!.Subtitle);
         Assert.Contains(lib.Collections(), c => c.Title == "Favorites" && c.SourceName == "Basement");
 

@@ -40,10 +40,10 @@ public partial class PosterTile : Button
     private readonly PosterArt _art;
     private readonly Label _title;
 
-    public PosterTile(MediaItem item, TileShape shape, double? progress, bool desktop, Action<MediaItem> open)
+    public PosterTile(MediaItem item, TileShape shape, double? progress, bool desktop, Action<MediaItem> open, float scale = 1)
     {
         Item = item;
-        var size = SizeFor(shape, desktop);
+        var size = (SizeFor(shape, desktop) * scale).Round();
         Flat = true;
         FocusMode = FocusModeEnum.All;
         TooltipText = item.Title + (item.Subtitle != null ? "\n" + item.Subtitle : "");
@@ -90,10 +90,38 @@ public partial class PosterTile : Button
         Anim.FocusPop(this, 1.03f, press: false);
     }
 
+    private bool _selected;
+
+    /// <summary>Corner badge, for tiles whose badge isn't derived from the library (seasons).</summary>
+    public string? Badge
+    {
+        get => _art.Badge;
+        set
+        {
+            _art.Badge = value;
+            _art.QueueRedraw();
+        }
+    }
+
+    /// <summary>The thin bar along the art's bottom (a season's share of episodes watched).</summary>
+    public void SetProgress(double? p) => _art.SetProgress(p);
+
+    /// <summary>Marks the picked tile of a set (a show's current season), focused or not.</summary>
+    public bool Selected
+    {
+        get => _selected;
+        set
+        {
+            _selected = value;
+            _art.Selected = value;
+            SetFocused(HasFocus());
+        }
+    }
+
     private void SetFocused(bool on)
     {
         _art.Focused = on;
-        _title.AddThemeColorOverride("font_color", on ? UiTheme.AccentText : UiTheme.Text);
+        _title.AddThemeColorOverride("font_color", on || _selected ? UiTheme.AccentText : UiTheme.Text);
     }
 
     /// <summary>"✓" for a watched movie or episode, the unwatched count for a show being watched, else null.</summary>

@@ -26,6 +26,18 @@ public partial class PosterArt : Control
     public bool OnWatchlist { get; set; }
     private Label? _title;
     private bool _focused;
+    private bool _selected;
+
+    /// <summary>A softer ring for the picked one of a set (a show's current season) while focus is elsewhere.</summary>
+    public bool Selected
+    {
+        get => _selected;
+        set
+        {
+            _selected = value;
+            QueueRedraw();
+        }
+    }
 
     /// <summary>Draws the focus ring inside the art (tiles draw their own focus).</summary>
     public bool Focused
@@ -286,10 +298,10 @@ public partial class PosterArt : Control
             var c = UiTheme.Accent;
             DrawPolygon([new Vector2(10, 0), new Vector2(10 + rw, 0), new Vector2(10 + rw, rh), new Vector2(10 + rw / 2, rh - rw * 0.4f), new Vector2(10, rh)], [c, c, c, c, c]);
         }
-        if (_focused)
+        if (_focused || _selected)
         {
-            var ring = new StyleBoxFlat { DrawCenter = false, BorderColor = UiTheme.Accent, AntiAliasing = true };
-            ring.SetBorderWidthAll(3);
+            var ring = new StyleBoxFlat { DrawCenter = false, BorderColor = _focused ? UiTheme.Accent : UiTheme.Accent with { A = 0.6f }, AntiAliasing = true };
+            ring.SetBorderWidthAll(_focused ? 3 : 2);
             ring.SetCornerRadiusAll((int)r);
             DrawStyleBox(ring, rect);
         }
