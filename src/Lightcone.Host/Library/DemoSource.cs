@@ -56,11 +56,12 @@ public sealed class DemoSource : IMediaSource
                 PlayUrl = Video(i, m.Minutes * 60),
             });
         }
-        var shows = new (string Title, int Year, string Genre, int Episodes)[]
+        // Episodes per season (season 0 = specials).
+        var shows = new (string Title, int Year, string Genre, int[] Seasons)[]
         {
-            ("Station Eleven-Twelve", 2022, "Drama", 6),
-            ("Dial Tone", 2024, "Comedy", 8),
-            ("Deep Field", 2023, "Documentary", 5),
+            ("Station Eleven-Twelve", 2022, "Drama", [0, 6]),
+            ("Dial Tone", 2024, "Comedy", [0, 8]),
+            ("Deep Field", 2023, "Documentary", [2, 6, 6, 4]),
         };
         for (var s = 0; s < shows.Length; s++)
         {
@@ -72,29 +73,36 @@ public sealed class DemoSource : IMediaSource
                 Title = show.Title,
                 Kind = MediaKind.Show,
                 Year = show.Year,
-                Subtitle = $"{show.Episodes} episodes",
+                Subtitle = $"{show.Seasons.Sum()} episodes",
                 Genres = [show.Genre],
                 Overview = $"A sample {show.Genre.ToLowerInvariant()} series to try Lightcone with.",
                 Added = t0.AddDays(-1 - s * 5),
                 SourceId = SourceId,
                 SourceName = Name,
             });
-            for (var e = 1; e <= show.Episodes; e++)
+            for (var sn = 0; sn < show.Seasons.Length; sn++)
             {
-                items.Add(new MediaItem
+                for (var e = 1; e <= show.Seasons[sn]; e++)
                 {
-                    Id = $"{showId}:e{e}",
-                    Title = $"Episode {e}",
-                    Kind = MediaKind.Episode,
-                    Subtitle = $"{show.Title} · S1 · E{e}",
-                    ParentId = showId,
-                    Index = e,
-                    Duration = 25 * 60,
-                    Added = t0.AddDays(-1 - s * 5),
-                    SourceId = SourceId,
-                    SourceName = Name,
-                    PlayUrl = Video(s + e, 25 * 60),
-                });
+                    items.Add(new MediaItem
+                    {
+                        // (Season 1 keeps the ids from before seasons.)
+                        Id = sn == 1 ? $"{showId}:e{e}" : $"{showId}:s{sn}e{e}",
+                        Title = sn == 0 ? $"Special {e}" : $"Episode {e}",
+                        Kind = MediaKind.Episode,
+                        Subtitle = $"{show.Title} · S{sn} · E{e}",
+                        Overview = sn == 0 ? "Behind the scenes." : $"Part {e} of season {sn}.",
+                        ParentId = showId,
+                        ParentTitle = show.Title,
+                        Index = e,
+                        Season = sn,
+                        Duration = 25 * 60,
+                        Added = t0.AddDays(-1 - s * 5),
+                        SourceId = SourceId,
+                        SourceName = Name,
+                        PlayUrl = Video(s + sn + e, 25 * 60),
+                    });
+                }
             }
         }
         var albums = new (string Title, string Artist, int Year, int Tracks)[]

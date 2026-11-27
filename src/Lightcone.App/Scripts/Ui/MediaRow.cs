@@ -10,13 +10,15 @@ namespace Lightcone.App.Ui;
 public partial class MediaRow : VBoxContainer
 {
     public List<PosterTile> Tiles { get; } = new();
+    private readonly ScrollContainer _scroll;
 
-    public MediaRow(HomeRow row, MediaLibrary lib, bool desktop, Action<MediaItem> open)
+    /// <param name="scale">Tile size against the usual (a show's season strip uses smaller posters).</param>
+    public MediaRow(HomeRow row, MediaLibrary lib, bool desktop, Action<MediaItem> open, float scale = 1)
     {
         AddThemeConstantOverride("separation", 10);
         var title = UiTheme.Label(UiTheme.Mono ? row.Title.ToUpperInvariant() : row.Title, desktop ? UiTheme.FontSize : UiTheme.FontSize + 4, UiTheme.Text);
         AddChild(title);
-        var scroll = new ScrollContainer
+        var scroll = _scroll = new ScrollContainer
         {
             FollowFocus = true,
             VerticalScrollMode = ScrollContainer.ScrollMode.Disabled,
@@ -40,11 +42,20 @@ public partial class MediaRow : VBoxContainer
         var shape = shapes.Count == 1 ? shapes[0] : shapes.Contains(TileShape.Poster) ? TileShape.Poster : shapes[0];
         foreach (var item in row.Items)
         {
-            var tile = new PosterTile(item, shape, PosterTile.ProgressOf(lib, item), desktop, open);
+            var tile = new PosterTile(item, shape, PosterTile.ProgressOf(lib, item), desktop, open, scale);
             Tiles.Add(tile);
             hbox.AddChild(tile);
         }
     }
+
+    /// <summary>Scrolls the row so a tile is in view without focusing it.</summary>
+    public void Reveal(PosterTile tile) => Callable.From(() =>
+    {
+        if (IsInstanceValid(tile) && tile.IsInsideTree())
+        {
+            _scroll.EnsureControlVisible(tile);
+        }
+    }).CallDeferred();
 
     /// <summary>Wires up/down between rows to the tile nearest in x (no diagonal surprises).</summary>
     public static void LinkRows(IReadOnlyList<MediaRow> rows, Control? above = null)

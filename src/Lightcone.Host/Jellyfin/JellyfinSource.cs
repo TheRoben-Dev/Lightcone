@@ -369,7 +369,7 @@ public sealed class JellyfinSource : IMediaSource
         var added = JellyfinClient.Str(m, "DateCreated") is { } dc && DateTime.TryParse(dc, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var a) ? a : DateTime.MinValue;
         int? index = JellyfinClient.Num(m, "IndexNumber") is { } ix ? (int)ix : null;
         int? season = null;
-        string? parent = null, parentTitle = null, subtitle = null;
+        string? parent = null, parentTitle = null, subtitle = null, seasonTitle = null, seasonPoster = null;
         switch (kind)
         {
             case MediaKind.Movie:
@@ -382,6 +382,11 @@ public sealed class JellyfinSource : IMediaSource
                 parent = JellyfinClient.Str(m, "SeriesId") is { } sid ? $"{Id}:{sid}" : null;
                 parentTitle = JellyfinClient.Str(m, "SeriesName");
                 season = JellyfinClient.Num(m, "ParentIndexNumber") is { } si ? (int)si : null;
+                seasonTitle = JellyfinClient.Str(m, "SeasonName");
+                // (No image tag on an episode for its season: a season without a poster 404s and the show's poster is used.)
+                seasonPoster = JellyfinClient.Str(m, "SeasonId") is { } seasonId
+                    ? $"{Url}/Items/{seasonId}/Images/Primary?fillWidth=400&fillHeight=600&quality=90"
+                    : null;
                 subtitle = string.Join(" · ", new[] { parentTitle, season is { } s ? $"S{s}" : null, index is { } e ? $"E{e}" : null }.OfType<string>());
                 break;
             case MediaKind.Album:
@@ -434,6 +439,8 @@ public sealed class JellyfinSource : IMediaSource
             ParentTitle = parentTitle,
             Index = index,
             Season = season,
+            SeasonTitle = seasonTitle is { Length: > 0 } ? seasonTitle : null,
+            SeasonPosterUrl = seasonPoster,
             ContentRating = JellyfinClient.Str(m, "OfficialRating") is { Length: > 0 } cr ? cr : null,
             Rating = rating is > 0 and <= 10 ? Math.Round(rating.Value, 1) : null,
         };

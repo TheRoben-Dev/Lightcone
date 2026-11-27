@@ -368,6 +368,7 @@ public sealed class PlexSource : IMediaSource
         string? parent = null, parentTitle = null, subtitle = null;
         int? index = PlexClient.Num(m, "index") is { } ix ? (int)ix : null;
         int? season = null;
+        string? seasonTitle = null, seasonThumb = null;
         switch (kind)
         {
             case MediaKind.Movie:
@@ -380,6 +381,8 @@ public sealed class PlexSource : IMediaSource
                 parent = PlexClient.Str(m, "grandparentRatingKey") is { } g ? $"{Id}:{g}" : null;
                 parentTitle = PlexClient.Str(m, "grandparentTitle");
                 season = PlexClient.Num(m, "parentIndex") is { } si ? (int)si : null;
+                seasonTitle = PlexClient.Str(m, "parentTitle");
+                seasonThumb = PlexClient.Str(m, "parentThumb");
                 subtitle = string.Join(" · ", new[] { parentTitle, season is { } s ? $"S{s}" : null, index is { } e ? $"E{e}" : null }.OfType<string>());
                 break;
             case MediaKind.Album:
@@ -422,6 +425,8 @@ public sealed class PlexSource : IMediaSource
             ParentTitle = parentTitle,
             Index = index,
             Season = season,
+            SeasonTitle = seasonTitle is { Length: > 0 } ? seasonTitle : null,
+            SeasonPosterUrl = seasonThumb == null ? null : PhotoUrl(uri, token, seasonThumb, 400, 600),
             Guid = PlexClient.Str(m, "guid"),
             Collections = collections,
             ContentRating = PlexClient.Str(m, "contentRating") is { Length: > 0 } cr ? cr : null,

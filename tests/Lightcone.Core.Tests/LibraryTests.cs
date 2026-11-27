@@ -38,6 +38,34 @@ public class LibraryTests : IDisposable
     }
 
     [Fact]
+    public void ShowsGroupEpisodesBySeasonWithSpecialsLast()
+    {
+        var lib = Demo();
+        var deepField = lib.Section(MediaKind.Show).First(s => s.Title == "Deep Field");
+        var seasons = lib.Seasons(deepField);
+        Assert.Equal(["Season 1", "Season 2", "Season 3", "Specials"], seasons.Select(s => s.Title));
+        Assert.Equal([6, 6, 4, 2], seasons.Select(s => s.Episodes.Count));
+        Assert.Equal([1, 2, 3, 4, 5, 6], seasons[0].Episodes.Select(e => e.Index!.Value));
+        Assert.Single(lib.Seasons(lib.Section(MediaKind.Show).First(s => s.Title == "Dial Tone")));
+
+        // Play starts where you are: the first unwatched, or the one in progress.
+        // (Specials wait until the regular seasons are done.)
+        Assert.Equal(seasons[0].Episodes[0], lib.NextToPlay(deepField));
+        foreach (var e in seasons[0].Episodes)
+        {
+            lib.SetWatched(e, true);
+        }
+        Assert.Equal(seasons[1].Episodes[0], lib.NextToPlay(deepField));
+        lib.Progress.Report(seasons[2].Episodes[1].Id, 300, 1500);
+        Assert.Equal(seasons[2].Episodes[1], lib.NextToPlay(deepField));
+        foreach (var e in seasons.Take(3).SelectMany(s => s.Episodes))
+        {
+            lib.SetWatched(e, true);
+        }
+        Assert.Equal(seasons[3].Episodes[0], lib.NextToPlay(deepField));
+    }
+
+    [Fact]
     public void SearchIgnoresCaseAccentsAndOrder()
     {
         var lib = Demo();

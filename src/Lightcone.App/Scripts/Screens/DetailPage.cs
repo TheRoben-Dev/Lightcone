@@ -13,9 +13,20 @@ public partial class DetailPage : Screen
     private readonly MediaItem _item;
     private Control? _first;
 
+    // Shows: the season strip, the picked season and its episode list (swapped in place).
+    private IReadOnlyList<ShowSeason> _seasons = [];
+    private int? _seasonKey;
+    private MediaRow? _strip;
+    private VBoxContainer? _episodes;
+    private List<Control> _actionButtons = [];
+
     public DetailPage(MediaItem item) => _item = item;
 
     private bool Listable => _item.Kind is MediaKind.Movie or MediaKind.Show;
+
+    private bool HasSeasons => _item.Kind == MediaKind.Show && _seasons.Count > 0;
+
+    private ShowSeason? CurrentSeason => _seasons.FirstOrDefault(x => x.Key == _seasonKey) ?? _seasons.FirstOrDefault();
 
     public override IEnumerable<(string Action, string Label)> Hints
     {
@@ -26,9 +37,18 @@ public partial class DetailPage : Screen
             {
                 hints.Add((Pad.Secondary, Host.Library.IsWatched(_item) ? "Mark unwatched" : "Mark watched"));
             }
+            else if (HasSeasons && CurrentSeason is { } season)
+            {
+                hints.Add((Pad.Secondary, SeasonWatched(season) ? "Season unwatched" : "Season watched"));
+            }
             if (Listable)
             {
                 hints.Add((Pad.Tertiary, Host.Library.OnWatchlist(_item) ? "Remove from watchlist" : "Add to watchlist"));
+            }
+            if (HasSeasons && _seasons.Count > 1)
+            {
+                hints.Add((Pad.SeekBack, "Previous season"));
+                hints.Add((Pad.SeekForward, "Next season"));
             }
             return hints;
         }
@@ -37,6 +57,8 @@ public partial class DetailPage : Screen
     protected override void Build()
     {
         _first = null;
+        _strip = null;
+        _episodes = null;
         var lib = Host.Library;
         var col = Column(Desktop ? 16 : 22);
         AddChild(Scroller(col));
@@ -97,6 +119,7 @@ public partial class DetailPage : Screen
             buttons.Add(b);
         }
         var children = lib.Children(_item.Id);
+        _seasons = _item.Kind == MediaKind.Show ? lib.Seasons(_item) : [];
         if (_item.Kind == MediaKind.Collection)
         {
             BuildCollection(col, children, Act, buttons);
@@ -119,7 +142,14 @@ public partial class DetailPage : Screen
         else if (children.Count > 0)
         {
             var music = _item.Kind == MediaKind.Album;
-            Act(music ? "▶  Play album" : "▶  Play next episode", () => MediaActions.PlayContainer(_item), $"{_item.Title}: play");
+            var label = music ? "▶  Play album" : "▶  Play next episode";
+            if (!music && lib.NextToPlay(_item) is { } next)
+            {
+                // Name the episode: "▶  Resume S2 · E4", "▶  Play S1 · E1".
+                var verb = lib.PositionOf(next) != null ? "Resume" : "Play";
+                label = $"▶  {verb} {EpisodeCode(next) ?? next.Title}";
+            }
+            Act(label, () => MediaActions.PlayContainer(_item), $"{_item.Title}: play");
             if (music)
             {
                 Act("Shuffle", () => MediaActions.PlayContainer(_item, shuffle: true), $"{_item.Title}: shuffle");
@@ -133,8 +163,13 @@ public partial class DetailPage : Screen
         }
         Focus.Row(buttons);
         _first = buttons.FirstOrDefault();
+        _actionButtons = buttons;
 
-        if (children.Count > 0)
+        if (HasSeasons)
+        {
+            BuildSeasons(col, buttons);
+        }
+        else if (children.Count > 0)
         {
             col.AddChild(Section(_item.Kind == MediaKind.Album ? "Tracks" : "Episodes"));
             var rows = new List<Control>();
@@ -229,6 +264,285 @@ public partial class DetailPage : Screen
         }
     }
 
+    // ---- shows: seasons ----
+
+    /// <summary>"S2 · E4" for an episode (specials: "Special 3"), or null without numbers.</summary>
+    private static string? EpisodeCode(MediaItem e) => (e.Season, e.Index) switch
+    {
+        (0, { } n) => $"Special {n}",
+        ({ } s, { } n) => $"S{s} · E{n}",
+        (null, { } n) => $"E{n}",
+        _ => null,
+    };
+
+    private bool SeasonWatched(ShowSeason season)
+    {
+        var lib = Host.Library;
+        var playable = season.Episodes.Where(e => e.Playable).ToList();
+        return playable.Count > 0 && playable.All(lib.IsWatched);
+    }
+
+    /// <summary>
+    /// A strip of season posters (only with more than one season) above the picked season's
+    /// episodes. Moving along the strip switches season; LT / RT switch from anywhere on the page.
+    /// </summary>
+    private void BuildSeasons(VBoxContainer col, List<Control> buttons)
+    {
+        var lib = Host.Library;
+        if (_seasonKey == null || _seasons.All(x => x.Key != _seasonKey))
+        {
+            // Open on the season of the episode "Play" would start.
+            var next = lib.NextToPlay(_item);
+            _seasonKey = (next != null ? _seasons.FirstOrDefault(x => x.Episodes.Contains(next)) : null)?.Key ?? _seasons[0].Key;
+        }
+        if (_seasons.Count > 1)
+        {
+            var items = _seasons.Select(SeasonItem).ToList();
+            // A (click, tap) on a season: pick it (a click may not focus it first) and go to its next episode.
+            _strip = new MediaRow(new HomeRow("seasons", $"Seasons  ·  {_seasons.Count}", items), lib, Desktop, it =>
+            {
+                SelectSeason(_seasons[items.IndexOf(it)].Key, keepFocus: true);
+                FocusEpisodes();
+            }, scale: 0.7f);
+            col.AddChild(_strip);
+            for (var i = 0; i < _strip.Tiles.Count; i++)
+            {
+                var season = _seasons[i];
+                var tile = _strip.Tiles[i];
+                var playable = season.Episodes.Where(e => e.Playable).ToList();
+                var left = playable.Count(e => !lib.IsWatched(e));
+                tile.Badge = playable.Count == 0 ? null : left == 0 ? "✓" : left < playable.Count ? left.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+                tile.Selected = season.Key == _seasonKey;
+                tile.SetProgress(playable.Count > 0 && left > 0 && left < playable.Count ? 1 - (double)left / playable.Count : null);
+                tile.FocusEntered += () => SelectSeason(season.Key, keepFocus: true);
+            }
+            MediaRow.LinkRows([_strip], above: buttons.FirstOrDefault());
+            foreach (var b in buttons)
+            {
+                b.FocusNeighborBottom = SelectedTile()!.GetPath();
+            }
+        }
+        _episodes = Column(Desktop ? 8 : 10);
+        col.AddChild(_episodes);
+        FillEpisodes();
+    }
+
+    /// <summary>A stand-in item for a season tile: its poster (or the show's), name and watched count.</summary>
+    private MediaItem SeasonItem(ShowSeason season)
+    {
+        var lib = Host.Library;
+        var playable = season.Episodes.Where(e => e.Playable).ToList();
+        var watched = playable.Count(lib.IsWatched);
+        var count = $"{season.Episodes.Count} episode{(season.Episodes.Count == 1 ? "" : "s")}";
+        return new MediaItem
+        {
+            Id = $"{_item.Id}#season:{season.Key}",
+            Title = season.Title,
+            Kind = MediaKind.Show,
+            Subtitle = watched == 0 || watched == playable.Count ? count : $"{watched} of {playable.Count} watched",
+            Poster = season.PosterUrl == null ? _item.Poster : null,
+            PosterUrl = season.PosterUrl ?? _item.PosterUrl,
+            SourceId = _item.SourceId,
+            SourceName = _item.SourceName,
+        };
+    }
+
+    private PosterTile? SelectedTile()
+    {
+        var i = _seasons.ToList().FindIndex(x => x.Key == _seasonKey);
+        return _strip != null && i >= 0 && i < _strip.Tiles.Count ? _strip.Tiles[i] : null;
+    }
+
+    /// <summary>Switches the episode list to another season, in place (the strip and focus stay).</summary>
+    private void SelectSeason(int key, bool keepFocus)
+    {
+        if (key == _seasonKey || _episodes == null)
+        {
+            return;
+        }
+        var inEpisodes = GetViewport()?.GuiGetFocusOwner() is { } f && _episodes.IsAncestorOf(f);
+        _seasonKey = key;
+        if (_strip != null)
+        {
+            for (var i = 0; i < _strip.Tiles.Count; i++)
+            {
+                _strip.Tiles[i].Selected = _seasons[i].Key == key;
+            }
+            if (SelectedTile() is { } tile)
+            {
+                _strip.Reveal(tile);
+                foreach (var b in _actionButtons)
+                {
+                    b.FocusNeighborBottom = tile.GetPath();
+                }
+            }
+        }
+        FillEpisodes();
+        if (!keepFocus && inEpisodes)
+        {
+            FocusEpisodes();
+        }
+        App.UpdateChrome();
+    }
+
+    private void StepSeason(int dir)
+    {
+        var i = _seasons.ToList().FindIndex(x => x.Key == _seasonKey);
+        var j = Math.Clamp(i + dir, 0, _seasons.Count - 1);
+        if (j == i)
+        {
+            return;
+        }
+        var focusOnStrip = _strip != null && GetViewport()?.GuiGetFocusOwner() is PosterTile t && _strip.Tiles.Contains(t);
+        SelectSeason(_seasons[j].Key, keepFocus: false);
+        if (focusOnStrip)
+        {
+            SelectedTile()?.GrabFocus();
+        }
+    }
+
+    /// <summary>Focus the picked season's next episode to watch (else its first).</summary>
+    private void FocusEpisodes()
+    {
+        if (_episodes == null || CurrentSeason is not { } season)
+        {
+            return;
+        }
+        var lib = Host.Library;
+        var rows = _episodes.GetChildren().OfType<ListRow>().ToList();
+        if (rows.Count == 0)
+        {
+            return;
+        }
+        var next = season.Episodes.FirstOrDefault(e => lib.PositionOf(e) != null) ?? season.Episodes.FirstOrDefault(e => e.Playable && !lib.IsWatched(e));
+        var i = next == null ? 0 : season.Episodes.ToList().IndexOf(next);
+        rows[Math.Clamp(i, 0, rows.Count - 1)].GrabFocus();
+    }
+
+    /// <summary>The picked season's header (name, counts, Mark season watched) and its episodes.</summary>
+    private void FillEpisodes()
+    {
+        if (_episodes == null || CurrentSeason is not { } season)
+        {
+            return;
+        }
+        foreach (var c in _episodes.GetChildren())
+        {
+            _episodes.RemoveChild(c);
+            c.QueueFree();
+        }
+        var lib = Host.Library;
+        var playable = season.Episodes.Where(e => e.Playable).ToList();
+        var left = playable.Count(e => !lib.IsWatched(e));
+        var head = new HBoxContainer();
+        head.AddThemeConstantOverride("separation", 16);
+        _episodes.AddChild(head);
+        var titleCol = Column(2);
+        titleCol.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        head.AddChild(titleCol);
+        titleCol.AddChild(UiTheme.Label(UiTheme.Mono ? season.Title.ToUpperInvariant() : season.Title, Desktop ? UiTheme.FontSize + 2 : UiTheme.FontSize + 6, UiTheme.Text));
+        var counts = $"{season.Episodes.Count} episode{(season.Episodes.Count == 1 ? "" : "s")}";
+        if (playable.Count > 0)
+        {
+            counts += left == 0 ? "  ·  all watched" : left < playable.Count ? $"  ·  {left} left" : "";
+        }
+        var runtime = season.Episodes.Sum(e => e.Duration ?? 0);
+        if (runtime > 0)
+        {
+            counts += $"  ·  {MediaItem.FormatDuration(runtime)}";
+        }
+        titleCol.AddChild(UiTheme.Label(counts, UiTheme.SmallSize + 1, left == 0 && playable.Count > 0 ? UiTheme.Good : UiTheme.Dim));
+        ActionButton? mark = null;
+        if (playable.Count > 0)
+        {
+            var all = left == 0;
+            mark = new ActionButton(all ? "Mark season unwatched" : "Mark season watched", ToggleSeasonWatched,
+                $"{_item.Title}: {season.Title}: mark {(all ? "unwatched" : "watched")}")
+            {
+                CustomMinimumSize = new Vector2(0, Desktop ? 38 : 48),
+                SizeFlagsVertical = SizeFlags.ShrinkCenter,
+            };
+            mark.SetMeta(PosterTile.NoHelp, true);
+            head.AddChild(mark);
+        }
+
+        var rows = new List<Control>();
+        var thumb = Desktop ? new Vector2(128, 72) : new Vector2(160, 90);
+        foreach (var e in season.Episodes)
+        {
+            var progress = PosterTile.ProgressOf(lib, e);
+            var watched = lib.IsWatched(e);
+            var status = watched ? "✓  Watched" : progress is { } p && e.Duration is { } d ? $"{MediaItem.FormatDuration(d * (1 - p))} left" : e.DurationText;
+            var label = e.Index is { } n ? $"{n}.  {e.Title}" : e.Title;
+            var art = new PosterArt(e, thumb, progress, 8, showTitle: false) { Badge = watched ? "✓" : null };
+            var detail = e.Overview is { } o ? o.ReplaceLineEndings(" ") : "";
+            var row = new ListRow(label, detail, status, watched ? UiTheme.Good : UiTheme.Dim, art,
+                onPress: () => MediaActions.Play(e), help: $"{e.Title}: play")
+            {
+                CustomMinimumSize = new Vector2(0, thumb.Y + 18),
+            };
+            row.SetMeta(PosterTile.NoHelp, true);
+            _episodes.AddChild(row);
+            rows.Add(row);
+        }
+        if (rows.Count == 0)
+        {
+            return;
+        }
+        Control above = SelectedTile() as Control ?? _actionButtons.FirstOrDefault() ?? rows[0];
+        if (mark != null)
+        {
+            Focus.Row([mark], above: above, below: rows[0]);
+            above = mark;
+        }
+        Focus.Column(rows, above: above);
+        var down = mark as Control ?? rows[0];
+        if (_strip != null)
+        {
+            foreach (var t in _strip.Tiles)
+            {
+                t.FocusNeighborBottom = down.GetPath();
+            }
+        }
+        else
+        {
+            foreach (var b in _actionButtons)
+            {
+                b.FocusNeighborBottom = down.GetPath();
+            }
+        }
+    }
+
+    private void ToggleSeasonWatched()
+    {
+        if (CurrentSeason is not { } season)
+        {
+            return;
+        }
+        var lib = Host.Library;
+        var watched = !SeasonWatched(season);
+        foreach (var e in season.Episodes.Where(e => e.Playable && lib.IsWatched(e) != watched))
+        {
+            lib.SetWatched(e, watched);
+        }
+        App.Toast(watched ? $"Marked {season.Title} watched" : $"Marked {season.Title} unwatched");
+        Rebuild();
+        App.UpdateChrome();
+    }
+
+    public override void _UnhandledInput(InputEvent e)
+    {
+        if (!HasSeasons || _seasons.Count < 2 || App.Top != this || !e.IsPressed())
+        {
+            return;
+        }
+        if (e.IsAction(Pad.SeekBack) || e.IsAction(Pad.SeekForward))
+        {
+            StepSeason(e.IsAction(Pad.SeekBack) ? -1 : 1);
+            GetViewport().SetInputAsHandled();
+        }
+    }
+
     private void ToggleWatchlist()
     {
         var lib = Host.Library;
@@ -279,6 +593,10 @@ public partial class DetailPage : Screen
         if (action == Pad.Secondary && _item.Playable)
         {
             ToggleWatched();
+        }
+        else if (action == Pad.Secondary && HasSeasons)
+        {
+            ToggleSeasonWatched();
         }
         else if (action == Pad.Tertiary && Listable)
         {

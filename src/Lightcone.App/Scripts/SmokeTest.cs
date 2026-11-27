@@ -75,8 +75,20 @@ public partial class SmokeTest : Node
         Step("home-watchlist", () => Main.Instance.SwitchTab("Home"), wait: 1.2, tab: "Home");
         Step("back-to-movies", () => Main.Instance.SwitchTab("Movies"), wait: 1.0, tab: "Movies");
         Step("shows", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Shows");
-        Step("show-detail", () => Tap(JoyButton.A), wait: 1.2, tab: "Shows");
-        Step("show-episodes", () => Tap(JoyButton.DpadDown), wait: 0.8, tab: "Shows");
+        // Deep Field has three seasons and specials: a season strip above the episodes.
+        Step("show-detail", () =>
+        {
+            FindFocusable(GetTree().Root, "Deep Field")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.2, expect: "Play S1 · E1", tab: "Shows");
+        Step("show-seasons", () => Tap(JoyButton.DpadDown), wait: 0.8, expect: "Season 1", tab: "Shows");
+        // Moving along the strip switches the season below.
+        Step("show-season-2", () => Tap(JoyButton.DpadRight), wait: 0.8, expect: "Season 2", tab: "Shows");
+        Step("show-episodes", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
+        // RT / LT switch season from the episode list too.
+        Step("show-season-trigger", () => Trigger(JoyAxis.TriggerRight), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
+        // Y marks the whole season watched.
+        Step("show-season-watched", () => Tap(JoyButton.Y), wait: 1.0, tab: "Shows");
         Step("show-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Shows");
         // Music keeps playing in the background with a now-playing chip in the header.
         Step("music", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Music");
@@ -192,6 +204,15 @@ public partial class SmokeTest : Node
         Step("desktop-grid-view", () => Click(FindFocusable(GetTree().Root, "Grid")), wait: 1.2, tab: "Movies");
         Step("desktop-collections", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
         Step("desktop-all-titles", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
+        Step("desktop-shows", () => Key(Godot.Key.Key3, ctrl: true), wait: 1.2, tab: "Shows");
+        Step("desktop-show-detail", () =>
+        {
+            FindFocusable(GetTree().Root, "Deep Field")?.GrabFocus();
+            Key(Godot.Key.Enter);
+        }, wait: 1.2, tab: "Shows");
+        Step("desktop-show-season", () => Click(FindFocusable(GetTree().Root, "Specials")), wait: 1.0, expect: "Special 1: play", tab: "Shows");
+        Step("desktop-show-back", () => Key(Godot.Key.Escape), wait: 1.0, tab: "Shows");
+        Step("desktop-movies-again", () => Key(Godot.Key.Key2, ctrl: true), wait: 1.2, tab: "Movies");
         Step("desktop-detail", () =>
         {
             FindFocusable(GetTree().Root, "Glass Orbit")?.GrabFocus();
