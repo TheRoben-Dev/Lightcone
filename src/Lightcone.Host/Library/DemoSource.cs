@@ -190,6 +190,42 @@ public sealed class DemoSource : IMediaSource
         return details.Where(x => x.d?.People.Any(p => p.Key == person.Key) == true).Select(x => x.i.Id).ToList();
     }
 
+    public bool CanSearchSubtitles(MediaItem item) => item.SourceId == SourceId && item.Kind is MediaKind.Movie or MediaKind.Episode;
+
+    /// <summary>Sample results, so subtitle search can be tried without a server.</summary>
+    public Task<IReadOnlyList<SubtitleResult>> SearchSubtitlesAsync(MediaItem item, string language, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SubtitleResult>>(
+        [
+            new($"{language}:1", $"{item.Title}.1080p.BluRay", "Sample", language, 9.1, false, 18234),
+            new($"{language}:2", $"{item.Title}.WEB-DL", "Sample", language, 8.4, false, 5120),
+            new($"{language}:3", $"{item.Title}.SDH", "Sample", language, 7.9, true, 1210),
+        ]);
+
+    /// <summary>Writes a small SRT for a sample result and returns its path.</summary>
+    public async Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default)
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"lightcone-sample-{result.Id.Replace(':', '-')}.srt");
+        // A line every 5 seconds for two hours, so one is always on screen.
+        var lines = Enumerable.Range(0, 1440).Select(k =>
+        {
+            var a = TimeSpan.FromSeconds(k * 5);
+            var b = a + TimeSpan.FromSeconds(4);
+            return $"{k + 1}\n{a:hh\\:mm\\:ss},000 --> {b:hh\\:mm\\:ss},800\n{item.Title}: sample line {k + 1} ({result.Language})\n";
+        });
+        await File.WriteAllTextAsync(file, string.Join("\n", lines), ct);
+        return file;
+    }
+
+    public bool CanCast => true;
+
+    /// <summary>A pretend TV, so casting can be tried without a server.</summary>
+    public Task<IReadOnlyList<CastTarget>> CastTargetsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<CastTarget>>([new CastTarget(SourceId, "demo-tv", "Living room TV", "Sample player")]);
+
+    public Task CastAsync(CastTarget target, MediaItem item, double position, CancellationToken ct = default) => Task.Delay(300, ct);
+
+    public Task CastControlAsync(CastTarget target, CastCommand command, CancellationToken ct = default) => Task.Delay(100, ct);
+
     private static string Video(int i, int seconds) =>
         $"av://lavfi:{Patterns[i % Patterns.Length]}=size=1280x720:rate=30:duration={seconds}";
 

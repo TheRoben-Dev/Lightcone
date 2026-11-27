@@ -93,6 +93,17 @@ public sealed class PlexClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>A Plex Companion command to a player (directly, or through the server), aimed with X-Plex-Target-Client-Identifier.</summary>
+    public async Task SendToPlayerAsync(string url, string token, string target, CancellationToken ct = default)
+    {
+        using var req = Request(HttpMethod.Get, url, token);
+        req.Headers.TryAddWithoutValidation("X-Plex-Target-Client-Identifier", target);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(6));
+        using var resp = await _http.SendAsync(req, cts.Token);
+        resp.EnsureSuccessStatusCode();
+    }
+
     // ---- sign-in ----
 
     /// <summary>Asks plex.tv for a 4-character code to enter at plex.tv/link.</summary>

@@ -70,7 +70,24 @@ public partial class TrackPickerPage : Screen
             subs.AddChild(b);
             sRows.Add(b);
         }
+        if (svc.Current is { } playing && Host.Library.CanSearchSubtitles(playing))
+        {
+            var find = new ListRow("Find subtitles…", "", null, UiTheme.Accent, onPress: () => App.Push(new SubtitleSearchPage(playing)),
+                help: "Search OpenSubtitles through your server and add one to this video.") { CustomMinimumSize = new Vector2(0, 52) };
+            subs.AddChild(find);
+            sRows.Add(find);
+        }
         var steppers = BuildPlayback(page, svc);
+        if (svc.Current is { } now && Host.Library.CanCast(now))
+        {
+            var cast = new ActionButton("Play on another screen…", () =>
+            {
+                App.Pop();
+                App.Push(new CastPage(now, svc.Position));
+            }, "Hand this over to a TV or phone app on the same server, from this spot.");
+            page.AddChild(cast);
+            steppers.Add(cast);
+        }
         Focus.Column(aRows, right: sRows.FirstOrDefault(), below: steppers[0]);
         Focus.Column(sRows, left: aRows.FirstOrDefault(), below: steppers[0]);
         Focus.Column(steppers, above: aRows.LastOrDefault() ?? sRows.LastOrDefault());
@@ -95,6 +112,22 @@ public partial class TrackPickerPage : Screen
         {
             page.AddChild(st);
             list.Add(st);
+        }
+        if (cur != null && Host.Library.CanConvert(cur) && Host.Downloads.LocalFile(cur) == null)
+        {
+            var q = new Stepper("Quality", QualityPolicy.Choices.Select(x => (x.Id, x.Label)), svc.QualityFor(cur).Id,
+                (Host.Library.IsRemote(cur) ? "Away from home. " : "") + "Picking another reopens the video at the same spot. Lasts until you quit; Settings → Playback sets the usual one.")
+            {
+                Wrap = false,
+                Expands = true,
+                DetailFor = QualityPolicy.Describe,
+            };
+            q.Changed += v =>
+            {
+                svc.SetQuality(v);
+                App.Toast("Quality: " + QualityPolicy.Find(v).Label);
+            };
+            Add(q);
         }
         double[] speeds = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
         var speed = new Stepper("Speed", speeds.Select(v => (v.ToString("0.##", CultureInfo.InvariantCulture), v == 1 ? "Normal" : v.ToString("0.##", CultureInfo.InvariantCulture) + "×")),

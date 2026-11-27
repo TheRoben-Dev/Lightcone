@@ -8,6 +8,8 @@ public enum PadFamily
     Xbox,
     PlayStation,
     Nintendo,
+    /// <summary>Steam Deck's own buttons (A B X Y, L1 / R1, L2 / R2, ☰ and ⧉), drawn without colours.</summary>
+    Deck,
 }
 
 /// <summary>
@@ -172,6 +174,15 @@ public static class Pad
                 return false;
             case InputEventJoypadButton jb:
                 LastDevice = jb.Device;
+                if (jb.Device != _glyphDevice)
+                {
+                    _glyphDevice = jb.Device;
+                    _padGlyphs = GlyphFamilyOf(jb.Device);
+                    if (LastFamily != PadFamily.Keyboard)
+                    {
+                        FamilyChanged?.Invoke();
+                    }
+                }
                 SetFamily(FamilyOf(jb.Device));
                 var action = ActionFor(jb.ButtonIndex, LastFamily);
                 if (action == null)
@@ -367,8 +378,106 @@ public static class Pad
             string.Join("; ", pads.Select(p => $"{p.Name} [{p.Vendor:x4}:{p.Product:x4}, {(p.Guid.Length > 0 ? p.Guid : "no guid")}]"));
     }
 
-    /// <summary>Which button set to draw: handhelds show Xbox glyphs even when Steam sends keys.</summary>
-    public static PadFamily GlyphFamily => LastFamily == PadFamily.Keyboard && IsHandheld ? PadFamily.Xbox : LastFamily;
+    /// <summary>Settings → Layout → Button glyphs: "auto", "xbox", "playstation", "nintendo" or "deck".</summary>
+    public static string GlyphStyle
+    {
+        get => _glyphStyle;
+        set
+        {
+            if (value != _glyphStyle)
+            {
+                _glyphStyle = value;
+                FamilyChanged?.Invoke();
+            }
+        }
+    }
+
+    private static string _glyphStyle = "auto";
+    private static PadFamily _padGlyphs = PadFamily.Xbox;
+    private static int _glyphDevice = -1;
+
+    private static PadFamily Parse(string f) => f switch
+    {
+        "playstation" => PadFamily.PlayStation,
+        "nintendo" => PadFamily.Nintendo,
+        "deck" => PadFamily.Deck,
+        _ => PadFamily.Xbox,
+    };
+
+    /// <summary>
+    /// The buttons printed on the pad in use: the real controller behind Steam's virtual gamepad
+    /// (Steam Input), else its USB vendor or name; the Deck's own controls on a Deck.
+    /// </summary>
+    public static PadFamily GlyphFamilyOf(int device)
+    {
+        var name = Input.GetJoyName(device);
+        var info = Input.GetJoyInfo(device);
+        int Id(string k) => info.TryGetValue(k, out var v) ? v.AsInt32() : 0;
+        if (Lightcone.Host.SteamPads.FamilyOfVendor(Id("vendor_id"), Id("product_id")) is { } byVendor)
+        {
+            return Parse(byVendor);
+        }
+        if (name.Contains("Steam Virtual", StringComparison.OrdinalIgnoreCase) || Id("vendor_id") == 0x28de)
+        {
+            var pads = Lightcone.Host.SteamPads.VirtualPads();
+            var slot = Input.GetConnectedJoypads().IndexOf(device);
+            if (pads.Count > 0)
+            {
+                return Parse(pads[Math.Clamp(slot, 0, pads.Count - 1)]);
+            }
+            return IsDeck ? PadFamily.Deck : PadFamily.Xbox;
+        }
+        var byName = Parse(Lightcone.Host.SteamPads.FamilyOf(name));
+        return byName == PadFamily.Xbox && IsDeck && name.Contains("Deck", StringComparison.OrdinalIgnoreCase) ? PadFamily.Deck : byName;
+    }
+
+    /// <summary>The detected glyph set, for Settings.</summary>
+    public static string GlyphFamilyName() => (LastFamily == PadFamily.Keyboard ? (IsDeck ? PadFamily.Deck : IsHandheld ? PadFamily.Xbox : PadFamily.Keyboard) : _padGlyphs) switch
+    {
+        PadFamily.PlayStation => "PlayStation",
+        PadFamily.Nintendo => "Nintendo",
+        PadFamily.Deck => "Steam Deck",
+        PadFamily.Keyboard => "keyboard",
+        _ => "Xbox",
+    };
+
+    /// <summary>True on a Steam Deck (LCD or OLED).</summary>
+    public static bool IsDeck { get; } = DetectDeck();
+
+    private static bool DetectDeck()
+    {
+        try
+        {
+            var product = File.Exists("/sys/class/dmi/id/product_name") ? File.ReadAllText("/sys/class/dmi/id/product_name") : "";
+            return product.Contains("Jupiter") || product.Contains("Galileo");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Which button set to draw: the chosen style, else the detected pad; handhelds show pad glyphs even when Steam sends keys.</summary>
+    public static PadFamily GlyphFamily
+    {
+        get
+        {
+            var pad = LastFamily != PadFamily.Keyboard || IsHandheld;
+            if (!pad)
+            {
+                return PadFamily.Keyboard;
+            }
+            if (_glyphStyle != "auto")
+            {
+                return Parse(_glyphStyle);
+            }
+            if (LastFamily == PadFamily.Keyboard)
+            {
+                return IsDeck ? PadFamily.Deck : PadFamily.Xbox;
+            }
+            return _padGlyphs;
+        }
+    }
 
     /// <summary>The label printed on the button for an action, for the current controller.</summary>
     public static string Glyph(string action) => (GlyphFamily, action) switch
@@ -385,6 +494,12 @@ public static class Pad
         (PadFamily.Keyboard, SeekForward) => "L",
         (PadFamily.PlayStation, Menu) => "Options",
         (PadFamily.Nintendo, Menu) => "+",
+        (PadFamily.Deck, Menu) => "☰",
+        (PadFamily.Deck, SeekBack) => "L2",
+        (PadFamily.Deck, SeekForward) => "R2",
+        (PadFamily.Deck, Switch) => "⧉",
+        (PadFamily.Deck, TabPrev) => "L1",
+        (PadFamily.Deck, TabNext) => "R1",
         (_, Menu) => "Menu",
         (PadFamily.PlayStation, SeekBack) => "L2",
         (PadFamily.PlayStation, SeekForward) => "R2",

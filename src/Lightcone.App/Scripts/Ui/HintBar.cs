@@ -66,7 +66,7 @@ public partial class HintBar : HBoxContainer
             var row = new HBoxContainer();
             row.AddThemeConstantOverride("separation", 8);
             row.AddChild(new ButtonGlyph(Pad.Glyph(action)));
-            var text = UiTheme.Label(UiTheme.Mono ? label.ToUpperInvariant() : label, UiTheme.SmallSize + 1, UiTheme.Dim);
+            var text = UiTheme.Label(UiTheme.Mono ? Loc.Upper(label) : label, UiTheme.SmallSize + 1, UiTheme.Dim);
             text.VerticalAlignment = VerticalAlignment.Center;
             row.AddChild(text);
             _hints.AddChild(row);

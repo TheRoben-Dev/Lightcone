@@ -70,10 +70,48 @@ public interface IMediaSource
     /// <summary>Ids of this source's movies and shows a person is in (as cast or crew).</summary>
     Task<IReadOnlyList<string>> TitlesWithAsync(Person person, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
 
+    /// <summary>Whether the server is reached away from home (remote address or relay): picks the away quality.</summary>
+    bool Remote => false;
+
+    /// <summary>
+    /// A URL for <paramref name="item"/> converted by the server to <paramref name="quality"/>, or null
+    /// when the source can't convert (then the file plays as is).
+    /// </summary>
+    string? StreamUrl(MediaItem item, Lightcone.Playback.Quality quality) => null;
+
+    /// <summary>
+    /// A URL to download <paramref name="item"/> from: the original file, or converted to
+    /// <paramref name="quality"/> as one progressive file. Null when the source can't.
+    /// </summary>
+    string? DownloadUrl(MediaItem item, Lightcone.Playback.Quality quality) => quality.Original ? item.PlayUrl : null;
+
+    /// <summary>Whether the server can search subtitles online for <paramref name="item"/>.</summary>
+    bool CanSearchSubtitles(MediaItem item) => false;
+
+    /// <summary>Subtitles the server finds online for <paramref name="item"/> in a two-letter <paramref name="language"/>.</summary>
+    Task<IReadOnlyList<SubtitleResult>> SearchSubtitlesAsync(MediaItem item, string language, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<SubtitleResult>>([]);
+
+    /// <summary>Has the server fetch <paramref name="result"/> and returns a URL (or path) mpv can load, or null.</summary>
+    Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+    /// <summary>Ids of titles the server thinks are like <paramref name="item"/> ("More like this"), best first.</summary>
+    Task<IReadOnlyList<string>> SimilarAsync(MediaItem item, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
+
     /// <summary>Seek preview thumbnails for an item, once <see cref="PrepareAsync"/> found them; null when the server has none.</summary>
     SeekPreview? PreviewOf(string itemId) => null;
 
     Task RefreshAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>Whether this server can send its titles to another player.</summary>
+    bool CanCast => false;
+
+    /// <summary>Players reachable through this server (not Lightcone itself).</summary>
+    Task<IReadOnlyList<CastTarget>> CastTargetsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<CastTarget>>([]);
+
+    Task CastAsync(CastTarget target, MediaItem item, double position, CancellationToken ct = default) => Task.CompletedTask;
+
+    Task CastControlAsync(CastTarget target, CastCommand command, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 public enum PlaybackState

@@ -3,6 +3,21 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.9.0
+
+- More like this: movie and show pages end with similar titles from your library (your server's picks first, then by genre, era and rating).
+- Home learns what you like: "Because you watched …" rows after something you finished, and Top picks for you from the genres you watch most. Only titles you haven't started.
+- Arrange Home (Settings → Home): show, hide and reorder every kind of Home row. The top card still shows what you're watching.
+- Quality: Settings → Playback has a quality for home (your server on this network) and one for away (over the internet or Plex's relay), from Original to 1 Mbps. Lower settings have the server convert the video. The player's options can change it for what's playing, and it reopens at the same spot.
+- Offline downloads: Download on a movie or episode page (a whole season or the next 5 episodes on a show page), as the file is or converted smaller. Downloads keep going in the background, resume after a break, and play without a network. What you watch offline syncs back to the server when it's reachable. Settings → Library → Downloads lists them; on a Steam Deck you can save them to the SD card.
+- Find subtitles: in the player's options, search OpenSubtitles through your server (Plex's built-in agent, or Jellyfin's OpenSubtitles plugin) in any language, and pick one to show it right away.
+- Subtitle look: colour, outline, drop shadow or a dark box, height and bold, in Settings → Playback. Changes show on what's playing.
+- Play on another screen: send a movie or episode to a Plex or Jellyfin app on a TV or phone (Play on… on its page, or from the player's options to hand over from where you are). A small remote then controls it from Lightcone.
+- Phone remote (Settings → Phone remote, off by default): scan the QR code and your phone's browser becomes a remote with a D-pad, play / pause, skipping and volume. It only works on your own network and asks for the 4-digit PIN shown in Settings.
+- Ambient mode: after 5 idle minutes on the menus (2 to 20, or never, in Settings → Sound & feel), the screen shows a slow slideshow of your library with a clock. It moves around so nothing burns in, and any button brings the menus back.
+- Button glyphs follow the controller behind Steam Input, so a DualSense shows ✕ ○ □ △ even in Game Mode, and a Steam Deck shows its own L1 / R1 and ☰. Settings → Layout → Button glyphs can pick a style by hand.
+- Svenska: Settings → Layout → Interface language. The menus, the player and Settings are translated; rarer texts are still in English.
+
 ## 0.8.0
 
 - Cast & crew on movie, show and episode pages (from Plex or Jellyfin). Pick someone to see everything else in your library they're in.

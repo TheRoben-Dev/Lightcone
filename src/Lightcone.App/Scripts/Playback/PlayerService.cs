@@ -233,6 +233,44 @@ public partial class PlayerService : Node
         return true;
     }
 
+    // ---- quality ----
+
+    /// <summary>Quality picked in the player's options for this run of the app (else Settings).</summary>
+    public string? QualityOverride { get; private set; }
+
+    /// <summary>The quality <paramref name="item"/> plays at: the player's pick, else home / away from Settings.</summary>
+    public Quality QualityFor(MediaItem item) =>
+        !Host.Library.CanConvert(item) ? QualityPolicy.Original
+        : QualityPolicy.Find(QualityOverride ?? (Host.Library.IsRemote(item) ? Host.Settings.QualityAway : Host.Settings.Quality));
+
+    /// <summary>What mpv opens: a downloaded copy, a server-converted stream, or the file.</summary>
+    private string? UrlFor(MediaItem item)
+    {
+        if (Host.Downloads.LocalFile(item) is { } local)
+        {
+            AppLog.Info($"playing the download of {item.Id}");
+            return local;
+        }
+        var q = QualityFor(item);
+        var url = Host.Library.StreamUrl(item, q);
+        if (!q.Original)
+        {
+            AppLog.Info($"quality {q.Id} for {item.Id}");
+        }
+        return url;
+    }
+
+    /// <summary>Picks another quality from the player's options: reopens what's playing at the same spot.</summary>
+    public void SetQuality(string id)
+    {
+        QualityOverride = id;
+        if (Current is { } cur && _mpv != null)
+        {
+            var at = Position;
+            Play(cur, startAt: at);
+        }
+    }
+
     // ---- sound: night mode and clear voices ----
 
     private int? AudioChannels => Tracks.FirstOrDefault(t => t.Kind == TrackKind.Audio && t.Selected)?.Channels;
@@ -251,6 +289,72 @@ public partial class PlayerService : Node
         _af = af;
         AppLog.Info($"audio filters: {(af.Length == 0 ? "none" : af)}");
         Guard(() => _mpv.SetString("af", af));
+    }
+
+    /// <summary>Volume up or down by <paramref name="step"/> percent (phone remote), up to 150.</summary>
+    public void NudgeVolume(int step)
+    {
+        Guard(() => _mpv?.Command("add", "volume", step.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        if (_mpv?.GetString("volume") is { } v)
+        {
+            Changed?.Invoke();
+            VolumeText = $"Volume {v.Split('.')[0]}%";
+        }
+    }
+
+    public void ToggleMute() => Guard(() => _mpv?.Command("cycle", "mute"));
+
+    /// <summary>The last volume change, for a toast.</summary>
+    public string? VolumeText { get; private set; }
+
+    /// <summary>Applies Settings' subtitle size and look to what's playing now.</summary>
+    public void ApplySubtitleLook()
+    {
+        if (_mpv == null)
+        {
+            return;
+        }
+        var s = Host.Settings;
+        var o = SubtitleLook.Options(s.SubtitleScale, s.SubtitleColor, s.SubtitleStyle, s.SubtitlePosition, s.SubtitleBold);
+        var oldMpv = false;
+        foreach (var (k, v) in o)
+        {
+            try
+            {
+                _mpv.SetString(k, v);
+            }
+            catch (MpvException e)
+            {
+                oldMpv |= k == "sub-border-style";
+                // mpv before 0.38 calls the outline "border".
+                var older = k.Replace("sub-outline-", "sub-border-", StringComparison.Ordinal);
+                if (older != k)
+                {
+                    Guard(() => _mpv.SetString(older, v));
+                }
+                else
+                {
+                    AppLog.Info($"subtitle look: {k}={v}: {e.Message}");
+                }
+            }
+        }
+        if (oldMpv && s.SubtitleStyle == "box")
+        {
+            // Before sub-border-style, a box is a shadow drawn behind the text in the background colour.
+            Guard(() => _mpv.SetString("sub-shadow-offset", "4"));
+            Guard(() => _mpv.SetString("sub-shadow-color", o["sub-back-color"]));
+        }
+    }
+
+    /// <summary>Loads an external subtitle file or URL and shows it.</summary>
+    public void AddSubtitle(string url, string? title = null, string? lang = null)
+    {
+        if (_mpv == null)
+        {
+            return;
+        }
+        AppLog.Info($"subtitle added: {title} ({lang}) from {(url.Contains("://", StringComparison.Ordinal) ? new Uri(url).Host : "a file")}");
+        Guard(() => _mpv.Command("sub-add", url, "select", title ?? "Downloaded", lang ?? ""));
     }
 
     public void SetNightMode(bool on)
@@ -357,7 +461,6 @@ public partial class PlayerService : Node
             ["hwdec"] = _software ? (s.Hwdec == HwdecPolicy.Off ? "no" : "auto-copy-safe") : HwdecPolicy.Resolve(s.Hwdec, os, egl),
             ["alang"] = string.Join(',', s.AudioLanguages),
             ["slang"] = string.Join(',', s.SubtitleLanguages),
-            ["sub-scale"] = (s.SubtitleScale / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
             ["sub-auto"] = "fuzzy",
             ["sub-ass-override"] = "scale",
             ["audio-display"] = "no",
@@ -366,6 +469,10 @@ public partial class PlayerService : Node
             ["volume-max"] = "150",
             ["msg-level"] = "all=warn",
         };
+        // Only the size here: the rest of the subtitle look is set after start-up, one option at a
+        // time, because older libmpv builds lack some (sub-border-style) and an unknown option here
+        // would stop the player from starting at all.
+        o["sub-scale"] = (s.SubtitleScale / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         if (s.SubtitleLanguages.Count == 0)
         {
             o["sid"] = "no";
@@ -393,6 +500,7 @@ public partial class PlayerService : Node
                 _mpv.Observe(p);
             }
             AppLog.Info($"mpv {_mpv.GetString("mpv-version")} from {MpvLibrary.LoadedFrom}, render {RenderPath}");
+            ApplySubtitleLook();
         }
         catch (Exception e) when (e is MpvException or DllNotFoundException or EntryPointNotFoundException)
         {
@@ -471,7 +579,7 @@ public partial class PlayerService : Node
         try
         {
             ApplyTrackChoice(item);
-            _mpv!.Load(item.PlayUrl, start);
+            _mpv!.Load(UrlFor(item) ?? item.PlayUrl!, start);
             _mpv.Paused = false;
         }
         catch (MpvException e)
@@ -672,6 +780,15 @@ public partial class PlayerService : Node
     /// <summary>Source id of trailers and extras: played as is, with no progress or history kept.</summary>
     public const string ExtraSource = "extra";
 
+    /// <summary>A download played (maybe offline): its state goes to the server again once it's reachable.</summary>
+    private void NoteDownload(MediaItem item)
+    {
+        if (Host.Downloads.Of(item.Id) != null)
+        {
+            Host.Downloads.NoteProgress(item.Id);
+        }
+    }
+
     /// <summary>Opened files and extras stay out of the history.</summary>
     private static bool Untracked(MediaItem item) => item.SourceId is "file" or ExtraSource;
 
@@ -693,6 +810,7 @@ public partial class PlayerService : Node
         if (Current is { } item && Position > 0 && item.SourceId != ExtraSource)
         {
             Host.Library.Report(item, Position, Duration, state);
+            NoteDownload(item);
         }
     }
 
@@ -746,6 +864,7 @@ public partial class PlayerService : Node
                     if (done.SourceId != ExtraSource)
                     {
                         Host.Library.Report(done, Duration ?? Position, Duration, PlaybackState.Stopped);
+                        NoteDownload(done);
                     }
                     Finished?.Invoke(done);
                     break;
@@ -762,6 +881,7 @@ public partial class PlayerService : Node
                 if (item.SourceId != ExtraSource)
                 {
                     Host.Library.Report(item, Duration ?? Position, Duration, PlaybackState.Stopped);
+                    NoteDownload(item);
                 }
                 Finished?.Invoke(item);
             }

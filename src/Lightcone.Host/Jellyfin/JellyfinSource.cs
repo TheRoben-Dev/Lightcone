@@ -362,6 +362,131 @@ public sealed class JellyfinSource : IMediaSource
         return list;
     }
 
+    public bool Remote => !Lightcone.Playback.QualityPolicy.IsLocal(Url);
+
+    /// <summary>Jellyfin's transcoder: HLS (streaming) or one MP4 file (downloads), H.264 + AAC.</summary>
+    internal string? TranscodeUrl(MediaItem item, Lightcone.Playback.Quality q, bool download)
+    {
+        if (q.Original || item.SourceId != Id || item.Kind is not (MediaKind.Movie or MediaKind.Episode))
+        {
+            return null;
+        }
+        var key = ServerKey(item.Id);
+        var bps = (q.Kbps * 1000).ToString(CultureInfo.InvariantCulture);
+        var video = ((q.Kbps - 192) * 1000).ToString(CultureInfo.InvariantCulture);
+        var common = $"MediaSourceId={key}&api_key={Uri.EscapeDataString(_entry.Token)}&DeviceId={Uri.EscapeDataString(_client.DeviceId)}" +
+                     $"&PlaySessionId={Guid.NewGuid():N}&VideoCodec=h264&AudioCodec=aac&MaxStreamingBitrate={bps}&VideoBitrate={video}&AudioBitrate=192000" +
+                     $"&MaxWidth={q.Width}&MaxHeight={q.Height}";
+        return download
+            ? $"{Url}/Videos/{key}/stream.mp4?{common}&Static=false&SubtitleMethod=Encode&TranscodingMaxAudioChannels=2"
+            : $"{Url}/Videos/{key}/main.m3u8?{common}&SegmentContainer=ts&BreakOnNonKeyFrames=true&TranscodingMaxAudioChannels=6";
+    }
+
+    public string? StreamUrl(MediaItem item, Lightcone.Playback.Quality quality) => TranscodeUrl(item, quality, download: false);
+
+    public string? DownloadUrl(MediaItem item, Lightcone.Playback.Quality quality) =>
+        quality.Original ? item.SourceId == Id ? $"{Url}/Items/{ServerKey(item.Id)}/Download?api_key={Uri.EscapeDataString(_entry.Token)}" : null : TranscodeUrl(item, quality, download: true);
+
+    // ---- subtitle search (the server's OpenSubtitles plugin) ----
+
+    public bool CanSearchSubtitles(MediaItem item) => item.SourceId == Id && item.Kind is MediaKind.Movie or MediaKind.Episode;
+
+    public async Task<IReadOnlyList<SubtitleResult>> SearchSubtitlesAsync(MediaItem item, string language, CancellationToken ct = default)
+    {
+        if (!CanSearchSubtitles(item))
+        {
+            return [];
+        }
+        using var doc = await _client.GetJsonAsync($"{Url}/Items/{ServerKey(item.Id)}/RemoteSearch/Subtitles/{SubtitleLanguages.ToThree(language)}", _entry.Token, ct, TimeSpan.FromSeconds(30));
+        return ParseSubtitleSearch(doc.RootElement, language);
+    }
+
+    internal static IReadOnlyList<SubtitleResult> ParseSubtitleSearch(JsonElement root, string language) =>
+        (root.ValueKind == JsonValueKind.Array ? root.EnumerateArray() : Enumerable.Empty<JsonElement>())
+            .Select(s => JellyfinClient.Str(s, "Id") is { } id
+                ? new SubtitleResult(id, JellyfinClient.Str(s, "Name") ?? "Subtitle", JellyfinClient.Str(s, "ProviderName") ?? "OpenSubtitles", language,
+                    JellyfinClient.Num(s, "CommunityRating"), s.TryGetProperty("IsHearingImpaired", out var hi) && hi.ValueKind == JsonValueKind.True,
+                    JellyfinClient.Num(s, "DownloadCount") is { } n ? (int)n : null)
+                : null)
+            .OfType<SubtitleResult>().OrderByDescending(r => r.Downloads ?? 0).ToList();
+
+    public async Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default)
+    {
+        if (!CanSearchSubtitles(item))
+        {
+            return null;
+        }
+        var key = ServerKey(item.Id);
+        using (await _client.SendAsync(HttpMethod.Post, $"{Url}/Items/{key}/RemoteSearch/Subtitles/{Uri.EscapeDataString(result.Id)}", _entry.Token, ct: ct, timeout: TimeSpan.FromSeconds(30)))
+        {
+        }
+        using var doc = await _client.GetJsonAsync($"{Url}/Users/{_entry.UserId}/Items/{key}?Fields=MediaStreams", _entry.Token, ct, TimeSpan.FromSeconds(15));
+        var sub = Array(doc.RootElement, "MediaStreams").Where(s => JellyfinClient.Str(s, "Type") == "Subtitle" && s.TryGetProperty("IsExternal", out var ext) && ext.ValueKind == JsonValueKind.True)
+            .OrderByDescending(s => JellyfinClient.Num(s, "Index") ?? 0).FirstOrDefault();
+        if (sub.ValueKind == JsonValueKind.Undefined || JellyfinClient.Num(sub, "Index") is not { } index)
+        {
+            return null;
+        }
+        return string.Create(CultureInfo.InvariantCulture, $"{Url}/Videos/{key}/{key}/Subtitles/{(int)index}/Stream.srt?api_key={Uri.EscapeDataString(_entry.Token)}");
+    }
+
+    public async Task<IReadOnlyList<string>> SimilarAsync(MediaItem item, CancellationToken ct = default)
+    {
+        if (item.SourceId != Id || item.Kind is not (MediaKind.Movie or MediaKind.Show))
+        {
+            return [];
+        }
+        using var doc = await _client.GetJsonAsync($"{Url}/Items/{ServerKey(item.Id)}/Similar?UserId={_entry.UserId}&Limit=30", _entry.Token, ct, TimeSpan.FromSeconds(15));
+        return Array(doc.RootElement, "Items").Select(x => JellyfinClient.Str(x, "Id")).OfType<string>().Select(id => $"{Id}:{id}").ToList();
+    }
+
+    public bool CanCast => true;
+
+    public async Task<IReadOnlyList<CastTarget>> CastTargetsAsync(CancellationToken ct = default)
+    {
+        using var doc = await _client.GetJsonAsync($"{Url}/Sessions?ControllableByUserId={_entry.UserId}&ActiveWithinSeconds=960", _entry.Token, ct, TimeSpan.FromSeconds(10));
+        return ParseSessions(doc.RootElement, Id, _client.DeviceId);
+    }
+
+    /// <summary>Sessions that take remote commands, leaving out this device.</summary>
+    internal static IReadOnlyList<CastTarget> ParseSessions(JsonElement root, string sourceId, string ownDevice)
+    {
+        if (root.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+        return root.EnumerateArray()
+            .Where(s => JellyfinClient.Bool(s, "SupportsRemoteControl") && JellyfinClient.Str(s, "DeviceId") != ownDevice)
+            .Select(s => JellyfinClient.Str(s, "Id") is { } id
+                ? new CastTarget(sourceId, id, JellyfinClient.Str(s, "DeviceName") ?? "Player", JellyfinClient.Str(s, "Client") ?? "Jellyfin")
+                : null)
+            .OfType<CastTarget>().DistinctBy(t => t.Id).ToList();
+    }
+
+    public async Task CastAsync(CastTarget target, MediaItem item, double position, CancellationToken ct = default)
+    {
+        var ticks = (long)(Math.Max(0, position) * Ticks);
+        using var _ = await _client.SendAsync(HttpMethod.Post,
+            string.Create(CultureInfo.InvariantCulture, $"{Url}/Sessions/{target.Id}/Playing?playCommand=PlayNow&itemIds={ServerKey(item.Id)}&startPositionTicks={ticks}"),
+            _entry.Token, null, ct, TimeSpan.FromSeconds(10));
+    }
+
+    public async Task CastControlAsync(CastTarget target, CastCommand command, CancellationToken ct = default)
+    {
+        var verb = command switch
+        {
+            CastCommand.PlayPause => "PlayPause",
+            CastCommand.Pause => "Pause",
+            CastCommand.Play => "Unpause",
+            CastCommand.Stop => "Stop",
+            CastCommand.SkipBack => "Rewind",
+            CastCommand.SkipForward => "FastForward",
+            CastCommand.Next => "NextTrack",
+            _ => "PreviousTrack",
+        };
+        using var _ = await _client.SendAsync(HttpMethod.Post, $"{Url}/Sessions/{target.Id}/Playing/{verb}", _entry.Token, null, ct, TimeSpan.FromSeconds(10));
+    }
+
     public async Task<IReadOnlyList<string>> TitlesWithAsync(Person person, CancellationToken ct = default)
     {
         if (person.SourceId != Id)

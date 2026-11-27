@@ -16,7 +16,7 @@ public partial class MediaRow : VBoxContainer
     public MediaRow(HomeRow row, MediaLibrary lib, bool desktop, Action<MediaItem> open, float scale = 1)
     {
         AddThemeConstantOverride("separation", 10);
-        var title = UiTheme.Label(UiTheme.Mono ? row.Title.ToUpperInvariant() : row.Title, desktop ? UiTheme.FontSize : UiTheme.FontSize + 4, UiTheme.Text);
+        var title = UiTheme.Label(UiTheme.Mono ? Loc.Upper(row.Title) : row.Title, desktop ? UiTheme.FontSize : UiTheme.FontSize + 4, UiTheme.Text);
         AddChild(title);
         var scroll = _scroll = new ScrollContainer
         {

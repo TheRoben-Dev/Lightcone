@@ -73,7 +73,7 @@ public partial class ButtonGlyph : Control
     /// <summary>Familiar face-button colours (Xbox letters, PlayStation symbols); none for Nintendo/keyboard.</summary>
     private static Color? FaceColor(string g) => (Pad.GlyphFamily, g) switch
     {
-        (PadFamily.Nintendo, _) => null,
+        (PadFamily.Nintendo or PadFamily.Deck, _) => null,
         (_, "A") => new Color("5dc21e"),
         (_, "B") => new Color("e8463b"),
         (_, "X") => new Color("2f8bff"),

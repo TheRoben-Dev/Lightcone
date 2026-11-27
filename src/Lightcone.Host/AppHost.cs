@@ -87,6 +87,50 @@ public sealed record AppSettings
     /// <summary>Resume a few seconds early (more after a long break) to catch the last line again.</summary>
     public bool SmartResume { get; init; } = true;
 
+    /// <summary>Home row sections in the order picked in Settings → Home (see MediaLibrary.HomeSections).</summary>
+    public List<string> HomeOrder { get; init; } = [];
+
+    /// <summary>Home row sections turned off.</summary>
+    public List<string> HomeHidden { get; init; } = [];
+
+    /// <summary>Streaming quality at home (the server on this network): "original" plays the file as is, else a QualityPolicy id.</summary>
+    public string Quality { get; init; } = "original";
+
+    /// <summary>Streaming quality away from home (a remote or relayed server).</summary>
+    public string QualityAway { get; init; } = "8000";
+
+    /// <summary>Subtitle text colour: white, yellow, cyan.</summary>
+    public string SubtitleColor { get; init; } = "white";
+
+    /// <summary>Subtitle look: "outline" (text with a dark edge) or "box" (on a dark background).</summary>
+    public string SubtitleStyle { get; init; } = "outline";
+
+    /// <summary>How high subtitles sit: 100 = the bottom edge, smaller = higher.</summary>
+    public int SubtitlePosition { get; init; } = 100;
+
+    public bool SubtitleBold { get; init; }
+
+    /// <summary>Phone remote: a small web page on this network (with a PIN) that controls Lightcone.</summary>
+    public bool RemoteEnabled { get; init; }
+
+    /// <summary>The phone remote's PIN (made when it's first turned on).</summary>
+    public string? RemotePin { get; init; }
+
+    /// <summary>Downloads: "original" (the file as is) or a QualityPolicy id to convert to.</summary>
+    public string DownloadQuality { get; init; } = "original";
+
+    /// <summary>Where downloads go; null = Lightcone's data folder.</summary>
+    public string? DownloadFolder { get; init; }
+
+    /// <summary>Ambient mode (artwork slideshow and clock) after this many idle minutes on the menus; 0 = never.</summary>
+    public int AmbientMinutes { get; init; } = 5;
+
+    /// <summary>Button glyphs: "auto" (detect the controller, through Steam Input too), "xbox", "playstation", "nintendo", "deck".</summary>
+    public string GlyphStyle { get; init; } = "auto";
+
+    /// <summary>Interface language: "auto" (the system's), "en" or "sv".</summary>
+    public string Language { get; init; } = "auto";
+
     /// <summary>Recap the last episode before playing a show after this many days away; -1 = never, 0 = every time.</summary>
     public int RecapAfterDays { get; init; } = 7;
 
@@ -118,6 +162,9 @@ public sealed class AppHost
     public AppUpdater Updater { get; }
     public MediaLibrary Library { get; }
 
+    /// <summary>Offline downloads (downloads.json; files in Settings.DownloadFolder or the data folder).</summary>
+    public Downloads Downloads { get; }
+
     /// <summary>The Plex account and its servers (sources in <see cref="Library"/>).</summary>
     public Plex.PlexService Plex { get; }
 
@@ -146,6 +193,7 @@ public sealed class AppHost
         ApplyDemo(Settings.DemoLibrary);
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
         Jellyfin = new Jellyfin.JellyfinService(Library, Paths.Config, Paths.Data, http);
+        Downloads = new Downloads(Path.Combine(Paths.Data, "downloads.json"), () => Settings.DownloadFolder ?? Path.Combine(Paths.Data, "downloads"));
     }
 
     /// <summary>Adds or removes the sample library.</summary>

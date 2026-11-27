@@ -53,6 +53,8 @@ public partial class Main : Control
     private AnimatedBackground? _animBg;
     private Scanlines? _crt;
     private ulong _navAtMs;
+    private AmbientMode _ambient = null!;
+    private double _idle;
     private Feedback? _feedback;
 
     public static Main Instance { get; private set; } = null!;
@@ -117,6 +119,10 @@ public partial class Main : Control
         AppLog.Info($"{Lightcone.Core.Platform.Name}, theme {startTheme}, window {DisplayServer.WindowGetSize()}, driver {RenderingServer.GetCurrentRenderingDriverName()} on {DisplayServer.GetName()}, pads: {Pad.DescribePads()}");
         UiTheme.Use(startTheme, host?.Settings.Accents.GetValueOrDefault(startTheme));
         Anim.Enabled = !(host?.Settings.ReduceMotion ?? false);
+        Loc.Apply(host?.Settings.Language ?? "auto");
+        Pad.GlyphStyle = host?.Settings.GlyphStyle ?? "auto";
+        var steamPads = Lightcone.Host.SteamPads.VirtualPads();
+        AppLog.Info($"language {Loc.Current}, glyphs {Pad.GlyphStyle}{(steamPads.Count > 0 ? ", Steam Input pads: " + string.Join(", ", steamPads) : "")}");
         Theme = UiTheme.Build();
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         Host = host;
@@ -127,6 +133,7 @@ public partial class Main : Control
         BuildBackground();
         _player = new PlayerService();
         AddChild(_player);
+        AddChild(new PhoneRemote());
 
         _chrome = new Control { MouseFilter = MouseFilterEnum.Ignore };
         _chrome.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -146,6 +153,10 @@ public partial class Main : Control
         _overlay.AddChild(_backdrop);
         _highlight = new FocusHighlight();
         AddChild(_highlight);
+        _ambient = new AmbientMode();
+        var ambientLayer = new CanvasLayer { Layer = 50 };
+        ambientLayer.AddChild(_ambient);
+        AddChild(ambientLayer);
         _toast = new Toast();
         AddChild(_toast);
         _feedback = new Feedback(UiTheme.Name)
@@ -186,6 +197,12 @@ public partial class Main : Control
         _ = Host.Plex.RefreshAllAsync();
         _ = Host.Jellyfin.RefreshAllAsync();
         _player.Changed += () => Callable.From(UpdatePlaying).CallDeferred();
+        // Downloads carry on from last time; what was watched offline goes back to the servers once they answer.
+        Host.Downloads.Kick();
+        var sync = new Godot.Timer { WaitTime = 60, Autostart = true };
+        sync.Timeout += () => Host.Downloads.SyncBack(Host.Library);
+        AddChild(sync);
+        Host.Library.Changed += () => Callable.From(() => Host.Downloads.SyncBack(Host.Library)).CallDeferred();
         _player.SleepFired += () => Callable.From(() => Toast("Sleep timer: playback stopped. Your spot is saved.")).CallDeferred();
 
         if (args.Contains("--open=appearance"))
@@ -705,6 +722,17 @@ public partial class Main : Control
 
     public override void _Input(InputEvent e)
     {
+        if (IsUserInput(e))
+        {
+            _idle = 0;
+            if (_ambient.Showing)
+            {
+                // Waking up only wakes up: the press doesn't also act on the menus.
+                _ambient.End();
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+        }
         if (e is InputEventAction or InputEventKey && e.IsPressed() && !e.IsEcho())
         {
             if (e.IsAction("ui_up") || e.IsAction("ui_down") || e.IsAction("ui_left") || e.IsAction("ui_right"))
@@ -747,8 +775,37 @@ public partial class Main : Control
         }
     }
 
+    private static bool IsUserInput(InputEvent e) => e switch
+    {
+        InputEventKey or InputEventMouseButton or InputEventJoypadButton or InputEventScreenTouch or InputEventAction => e.IsPressed(),
+        InputEventJoypadMotion m => Math.Abs(m.AxisValue) > 0.5f,
+        InputEventMouseMotion mm => mm.Relative.Length() > 4,
+        _ => false,
+    };
+
+    /// <summary>Starts ambient mode now (also after Settings' idle minutes on the menus).</summary>
+    public void ShowAmbient()
+    {
+        if (!_ambient.Showing && Host != null)
+        {
+            _ambient.Begin(Host.Library.All);
+        }
+    }
+
+    private void CheckIdle(double delta)
+    {
+        _idle += delta;
+        var minutes = Host?.Settings.AmbientMinutes ?? 0;
+        if (minutes <= 0 || _ambient.Showing || _idle < minutes * 60 || _player.Current != null || _stack.Count == 0 || _stack[^1] is PlayerScreen or TextEntryPage)
+        {
+            return;
+        }
+        ShowAmbient();
+    }
+
     public override void _Process(double delta)
     {
+        CheckIdle(delta);
         if (_appFocused)
         {
             TouchScroll.Process(delta);

@@ -80,7 +80,7 @@ public partial class SmokeTest : Node
         // Options: speed (remembered for this movie) and the sleep timer.
         Step("player-options-speed", () =>
         {
-            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadDown, 2);
             Tap(JoyButton.DpadRight);
         }, wait: 1.0, expect: "Playback speed");
         Step("player-options-sleep", () =>
@@ -254,9 +254,11 @@ public partial class SmokeTest : Node
         Step("playback-hwdec-back", () => Press("ui_left"), expect: "Decode video on the GPU");
         Step("playback-back", () => Press(Pad.Back), expect: "Playback");
         Step("settings-library-row", () => Press("ui_down"), expect: "Library");
+        Step("settings-home", () => Press("ui_down"), expect: "Home");
+        Step("settings-remote", () => Press("ui_down"), expect: "Phone remote");
         Step("settings-appearance", () => Press("ui_down"), expect: "Appearance");
         Step("settings-sound", () => Press("ui_down"), expect: "Sound & feel");
-        Step("sound-pane", () => Press(Pad.Accept), expect: "Short sounds when you move");
+        Step("sound-pane", () => Press(Pad.Accept), expect: "Left alone on the menus");
         Step("sound-back", () => Press(Pad.Back), expect: "Sound & feel");
         // Music is optional: off takes the tab away (and music out of Home and search).
         Step("settings-library", () => FindFocusable(GetTree().Root, "Music, collections")?.GrabFocus(), expect: "Library");
@@ -347,6 +349,119 @@ public partial class SmokeTest : Node
         Step("desktop-settings-playback", () => Press(Pad.Accept), expect: "Decode video on the GPU");
         Step("desktop-stop", () => PlayerService.Instance.Stop(), wait: 1.0);
         Step("controller-layout", () => Main.Instance.ApplyLayout("auto"), wait: 1.5, tab: "Settings");
+        AddRelease09Steps();
+    }
+
+    /// <summary>0.9.0: More like this, Play on…, subtitle search, Arrange Home, phone remote, ambient mode, Swedish.</summary>
+    private void AddRelease09Steps()
+    {
+        const string movie = "A Field of Lanterns";
+        Step("v09-movies", () => Main.Instance.SwitchTab("Movies"), wait: 1.2, tab: "Movies");
+        Step("v09-detail", () =>
+        {
+            FindFocusable(GetTree().Root, movie)?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 2.0, tab: "Movies");
+        Step("v09-more-like-this", () => FindFocusable(GetTree().Root, "More like this")?.GrabFocus(), wait: 1.0, tab: "Movies");
+        Step("v09-more-like-this-row", () => Tap(JoyButton.DpadDown, 12), wait: 1.2, tab: "Movies");
+        Step("v09-cast", () =>
+        {
+            FindFocusable(GetTree().Root, $"{movie}: play on another screen")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, expect: "Play on Living room TV", tab: "Movies");
+        Step("v09-cast-send", () => Tap(JoyButton.A), wait: 1.5, expect: "▶ ❚❚  Play / pause", tab: "Movies");
+        Step("v09-cast-pause", () => Tap(JoyButton.Y), wait: 0.8, expect: "▶ ❚❚  Play / pause", tab: "Movies");
+        Step("v09-cast-done", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        Step("v09-detail-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        // Subtitle search (the sample library's results make a real SRT) and the new subtitle look.
+        Step("v09-play", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { SubtitleStyle = "box", SubtitleColor = "yellow" });
+            var item = host.Library.Section(Lightcone.Host.Library.MediaKind.Movie).First(m => m.Title == movie);
+            PlayerService.Instance.Play(item);
+            Main.Instance.ShowPlayer();
+        }, wait: 2.5);
+        Step("v09-options", () => Tap(JoyButton.Start), wait: 1.0);
+        Step("v09-find-subtitles", () =>
+        {
+            FindFocusable(GetTree().Root, "Search OpenSubtitles")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, expect: "Subtitle: ");
+        Step("v09-subtitle-pick", () => Tap(JoyButton.A), wait: 1.5);
+        Step("v09-subtitle-shown", () => Tap(JoyButton.B), wait: 3.0);
+        Step("v09-stop", () =>
+        {
+            PlayerService.Instance.Stop();
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { SubtitleStyle = "outline", SubtitleColor = "white" });
+            Main.Instance.SwitchTab("Settings");
+        }, wait: 1.5, tab: "Settings");
+        // Arrange Home: move Recently added up, look at Home, then reset.
+        Step("v09-arrange", () => Main.Instance.Push(new HomeLayoutPage()), wait: 1.0, expect: "Home row: Continue watching", tab: "Settings");
+        Step("v09-arrange-move", () =>
+        {
+            FindFocusable(GetTree().Root, "Move Recently added up")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "↑", tab: "Settings");
+        Step("v09-arrange-home", () => Main.Instance.SwitchTab("Home"), wait: 1.5, tab: "Home");
+        Step("v09-arrange-reset", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { HomeOrder = [], HomeHidden = [] });
+            Main.Instance.SwitchTab("Settings");
+        }, wait: 1.2, tab: "Settings");
+        // Phone remote: on, the page with its PIN and QR code, then a command over HTTP moves the focus.
+        Step("v09-remote", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { RemoteEnabled = true });
+            PhoneRemote.Instance?.Apply();
+            FindFocusable(GetTree().Root, "Control Lightcone from a phone")?.GrabFocus();
+            Press(Pad.Accept);
+        }, wait: 1.5, tab: "Settings");
+        Step("v09-remote-http", () =>
+        {
+            var port = PhoneRemote.Instance?.Port ?? 0;
+            var pin = Main.Instance.Host!.Settings.RemotePin ?? "";
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, $"http://127.0.0.1:{port}/api/state");
+            req.Headers.Add("X-Lightcone-Pin", pin);
+            var state = http.Send(req);
+            var page = http.Send(new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, $"http://127.0.0.1:{port}/"));
+            using var cmd = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, $"http://127.0.0.1:{port}/api/cmd?c=back");
+            cmd.Headers.Add("X-Lightcone-Pin", pin);
+            var sent = http.Send(cmd);
+            Lightcone.Host.AppLog.Info($"smoke: phone remote state {(int)state.StatusCode}, page {(int)page.StatusCode}, command {(int)sent.StatusCode}");
+        }, wait: 1.2, expect: "Phone remote", tab: "Settings");
+        Step("v09-remote-off", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { RemoteEnabled = false });
+            PhoneRemote.Instance?.Apply();
+        }, wait: 0.5, tab: "Settings");
+        Step("v09-ambient", () => Main.Instance.ShowAmbient(), wait: 3.0, tab: "Settings");
+        Step("v09-ambient-wake", () => Tap(JoyButton.A), wait: 1.0, expect: "Phone remote", tab: "Settings");
+        // Svenska.
+        Step("v09-swedish-home", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { Language = "sv" });
+            Loc.Apply("sv");
+            Main.Instance.SwitchTab("Home");
+        }, wait: 1.5, tab: "Home");
+        Step("v09-swedish-settings", () =>
+        {
+            Main.Instance.SwitchTab("Settings");
+            Press(Pad.Accept);
+        }, wait: 1.5, tab: "Settings");
+        Step("v09-swedish-off", () =>
+        {
+            var host = Main.Instance.Host!;
+            host.SaveSettings(host.Settings with { Language = "auto" });
+            Loc.Apply("auto");
+            Press(Pad.Back);
+        }, wait: 1.0, tab: "Settings");
     }
 
     private static void TypeText(string text)

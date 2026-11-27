@@ -15,6 +15,8 @@ public partial class SettingsScreen : TwoPaneScreen
     [
         ("Playback", "Decoding, languages, subtitles, seeking, sound and resume."),
         ("Library", "Music, collections, spoilers and your stats."),
+        ("Home", "Which rows Home shows, and in what order."),
+        ("Phone remote", "Control Lightcone from a phone's browser on the same network."),
         ("Appearance", "Theme, accent colour, CRT effect and animations."),
         ("Sound & feel", "Menu sounds and controller rumble."),
         ("Layout", "Controller or desktop layout, and keyboard shortcuts."),
@@ -35,6 +37,12 @@ public partial class SettingsScreen : TwoPaneScreen
                 break;
             case "Library":
                 BuildLibrary(col, Add);
+                break;
+            case "Home":
+                BuildHome(col, Add);
+                break;
+            case "Phone remote":
+                BuildRemote(col, Add);
                 break;
             case "Appearance":
                 BuildAppearance(col, Add);
@@ -68,6 +76,21 @@ public partial class SettingsScreen : TwoPaneScreen
             "Hides thumbnails and summaries of episodes you haven't watched yet, so a still or a synopsis doesn't give the plot away.",
             "Unwatched episodes show only their number and title.", "Every episode shows its thumbnail and summary."));
         Add(new ActionButton("Your stats", () => App.Push(new StatsPage()), "Hours watched, streaks, top shows and genres (Home: X)."));
+        var dl = Host.Downloads.Entries.Count(e => e.State == DownloadState.Done);
+        Add(new ActionButton($"Downloads ({dl})", () => App.Push(new DownloadsPage()), "Movies and episodes saved on this device to watch offline."));
+        var places = DownloadPlaces();
+        if (places.Count > 1)
+        {
+            var current = Host.Settings.DownloadFolder ?? "";
+            var where = new Stepper("Download to", places, places.Any(p => p.Item1 == current) ? current : "",
+                "Where new downloads go. On a Steam Deck, pick the SD card to save the internal drive.")
+            {
+                Expands = true,
+                Wrap = false,
+            };
+            where.Changed += v => Host.SaveSettings(Host.Settings with { DownloadFolder = v == "" ? null : v });
+            Add(where);
+        }
         var lib = Host.Library;
         var watch = lib.Watchlist().Count;
         var mine = lib.Lists.Collections.Count;
@@ -76,11 +99,108 @@ public partial class SettingsScreen : TwoPaneScreen
             UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
     }
 
+    private void BuildRemote(VBoxContainer col, Action<Control> Add)
+    {
+        var remote = PhoneRemote.Instance;
+        Add(Toggle.Create("Phone remote", Host.Settings.RemoteEnabled, on =>
+        {
+            Host.SaveSettings(Host.Settings with { RemoteEnabled = on });
+            remote?.Apply();
+            Callable.From(Rebuild).CallDeferred();
+        }, "A remote in your phone's browser: D-pad, play / pause, skip and volume. Only on this network, and only with the PIN.",
+            "Scan the code with your phone's camera.", "Off: nothing listens on the network."));
+        if (remote is not { Running: true })
+        {
+            return;
+        }
+        var urls = remote.Urls;
+        col.AddChild(UiTheme.Label($"PIN  {Host.Settings.RemotePin}", UiTheme.TitleSize - 6, UiTheme.Accent));
+        if (urls.Count == 0)
+        {
+            col.AddChild(UiTheme.Label($"No network found. Connect to Wi-Fi, then open http://<this device's address>:{remote.Port}/ on your phone.",
+                UiTheme.SmallSize + 1, UiTheme.Warn, wrap: true));
+        }
+        else
+        {
+            col.AddChild(UiTheme.Label("On your phone (same Wi-Fi), scan this or open " + string.Join("  or  ", urls), UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
+            if (QrCode.Texture(urls[0], 6) is { } tex)
+            {
+                col.AddChild(new TextureRect
+                {
+                    Texture = tex,
+                    StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                    CustomMinimumSize = new Vector2(220, 220),
+                    SizeFlagsHorizontal = SizeFlags.ShrinkBegin,
+                    TextureFilter = TextureFilterEnum.Nearest,
+                });
+            }
+        }
+        Add(new ActionButton("New PIN", () =>
+        {
+            remote.NewPin();
+            Rebuild();
+        }, "Make a new PIN; phones that used the old one ask for it again."));
+    }
+
+    private void BuildHome(VBoxContainer col, Action<Control> Add)
+    {
+        Add(new ActionButton("Arrange Home rows…", () => App.Push(new HomeLayoutPage()),
+            "Show, hide and reorder Home's rows: Continue watching, Because you watched, Top picks, Recently added and more."));
+        var hidden = Host.Settings.HomeHidden.Count;
+        col.AddChild(UiTheme.Label(hidden == 0 ? "Every row is shown." : $"{hidden} {(hidden == 1 ? "row is" : "rows are")} hidden.",
+            UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
+    }
+
+    /// <summary>This device's storage for downloads ("" = Lightcone's data folder), plus SD cards and other drives.</summary>
+    private static List<(string, string)> DownloadPlaces()
+    {
+        var list = new List<(string, string)> { ("", "This device (Lightcone's folder)") };
+        try
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                var user = System.Environment.UserName;
+                foreach (var root in new[] { $"/run/media/{user}", "/run/media/deck", "/media", $"/media/{user}" }.Distinct())
+                {
+                    if (!System.IO.Directory.Exists(root))
+                    {
+                        continue;
+                    }
+                    foreach (var d in System.IO.Directory.GetDirectories(root))
+                    {
+                        if (d == $"/media/{user}")
+                        {
+                            continue;
+                        }
+                        list.Add((System.IO.Path.Combine(d, "Lightcone"), "SD card / drive: " + System.IO.Path.GetFileName(d)));
+                    }
+                }
+            }
+            else
+            {
+                foreach (var drive in System.IO.DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType is System.IO.DriveType.Removable or System.IO.DriveType.Fixed))
+                {
+                    var path = System.IO.Path.Combine(drive.RootDirectory.FullName, "Lightcone Downloads");
+                    if (OperatingSystem.IsMacOS() && !drive.RootDirectory.FullName.StartsWith("/Volumes/", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    list.Add((path, $"{drive.Name.TrimEnd('\\', '/')} ({drive.AvailableFreeSpace / (1L << 30)} GB free)"));
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Info($"download places: {e.Message}");
+        }
+        return list.DistinctBy(p => p.Item1).ToList();
+    }
+
     private string? _pendingTheme;
     private string? _pendingBase;
     private Dictionary<string, string>? _pendingAccents;
 
-    private static readonly (string Code, string Label)[] LanguageChoices =
+    internal static readonly (string Code, string Label)[] LanguageChoices =
     [
         ("en", "English"), ("sv", "Swedish"), ("ja", "Japanese"), ("de", "German"), ("fr", "French"), ("es", "Spanish"),
         ("it", "Italian"), ("pt", "Portuguese"), ("nl", "Dutch"), ("no", "Norwegian"), ("da", "Danish"), ("fi", "Finnish"),
@@ -132,8 +252,35 @@ public partial class SettingsScreen : TwoPaneScreen
         {
             Expands = true,
         };
-        size.Changed += v => Host.SaveSettings(Host.Settings with { SubtitleScale = int.Parse(v) });
+        size.Changed += v =>
+        {
+            Host.SaveSettings(Host.Settings with { SubtitleScale = int.Parse(v) });
+            PlayerService.Instance.ApplySubtitleLook();
+        };
         Add(size);
+
+        Stepper Look(string label, IEnumerable<(string, string)> choices, string value, string help, Func<string, AppSettings> apply)
+        {
+            var st = new Stepper(label, choices, value, help) { Expands = true };
+            st.Changed += v =>
+            {
+                Host.SaveSettings(apply(v));
+                PlayerService.Instance.ApplySubtitleLook();
+            };
+            return st;
+        }
+        Add(Look("Subtitle colour", SubtitleLook.Colors.Select(c => (c.Id, c.Label)), s.SubtitleColor,
+            "Text colour for text subtitles.", v => Host.Settings with { SubtitleColor = v }));
+        Add(Look("Subtitle style", SubtitleLook.Styles.Select(c => (c.Id, c.Label)), s.SubtitleStyle,
+            "Outline is easiest on most films; a dark box reads best over bright scenes.", v => Host.Settings with { SubtitleStyle = v }));
+        Add(Look("Subtitle height", [("100", "Bottom"), ("95", "A little higher"), ("90", "Higher"), ("80", "Much higher")],
+            new[] { 100, 95, 90, 80 }.OrderBy(x => Math.Abs(x - s.SubtitlePosition)).First().ToString(),
+            "Lift subtitles off the bottom edge (handy on TVs that crop, or with burnt-in captions).", v => Host.Settings with { SubtitlePosition = int.Parse(v) }));
+        Add(Toggle.Create("Bold subtitles", s.SubtitleBold, on =>
+        {
+            Host.SaveSettings(Host.Settings with { SubtitleBold = on });
+            PlayerService.Instance.ApplySubtitleLook();
+        }, "Heavier text for text subtitles.", "Subtitles are bold.", "Normal weight."));
 
         Stepper SeekStepper(string label, int value, int[] steps, string help, Func<int, AppSettings> apply)
         {
@@ -174,6 +321,26 @@ public partial class SettingsScreen : TwoPaneScreen
         Add(Choice("Recap after a break", [(-1, "Off"), (0, "Every time"), (3, "After 3 days"), (7, "After a week"), (14, "After 2 weeks")], s.RecapAfterDays,
             "Back to a show after a while? Before the next episode, see what happened in the last one, and rewatch its last two minutes if you like.",
             v => Host.Settings with { RecapAfterDays = v }));
+
+        var qualities = QualityPolicy.Choices.Select(q => (q.Id, q.Label)).ToList();
+        var home = new Stepper("Quality at home", qualities, QualityPolicy.Find(s.Quality).Id,
+            "For servers on this network. Original plays the file as is; a bitrate has the server convert it (smaller, any device can play it).")
+        {
+            Expands = true,
+            Wrap = false,
+            DetailFor = QualityPolicy.Describe,
+        };
+        home.Changed += v => Host.SaveSettings(Host.Settings with { Quality = v });
+        Add(home);
+        var away = new Stepper("Quality away from home", qualities, QualityPolicy.Find(s.QualityAway).Id,
+            "For servers reached over the internet or Plex's relay (on the go, at a friend's). Lower keeps it smooth on slow connections.")
+        {
+            Expands = true,
+            Wrap = false,
+            DetailFor = QualityPolicy.Describe,
+        };
+        away.Changed += v => Host.SaveSettings(Host.Settings with { QualityAway = v });
+        Add(away);
 
         Add(Toggle.Create("Smart resume", s.SmartResume, on => Host.SaveSettings(Host.Settings with { SmartResume = on }),
             "Picking up where you left off backs up a little so you hear the last line again: 5 seconds, more after a long break.",
@@ -225,6 +392,29 @@ public partial class SettingsScreen : TwoPaneScreen
             Callable.From(RefreshPane).CallDeferred();
         };
         Add(layout);
+        var lang = new Stepper("Interface language", Loc.Choices, Host.Settings.Language,
+            "Menus, the player and Settings. Rarer texts may still be in English.") { Expands = true };
+        lang.Changed += v =>
+        {
+            Host.SaveSettings(Host.Settings with { Language = v });
+            Loc.Apply(v);
+            Callable.From(Rebuild).CallDeferred();
+        };
+        Add(lang);
+        var glyphs = new Stepper("Button glyphs",
+            [("auto", "Detect"), ("xbox", "Xbox (A B X Y)"), ("playstation", "PlayStation (✕ ○ □ △)"), ("nintendo", "Nintendo (B A Y X)"), ("deck", "Steam Deck")],
+            Host.Settings.GlyphStyle,
+            "Which buttons the hints show. Detect reads the real controller, also behind Steam Input.")
+        {
+            Expands = true,
+            DetailFor = v => v == "auto" ? "Now: " + Pad.GlyphFamilyName() : null,
+        };
+        glyphs.Changed += v =>
+        {
+            Host.SaveSettings(Host.Settings with { GlyphStyle = v });
+            Pad.GlyphStyle = v;
+        };
+        Add(glyphs);
         col.AddChild(Section("Keyboard and mouse"));
         foreach (var line in new[]
         {
@@ -241,6 +431,16 @@ public partial class SettingsScreen : TwoPaneScreen
 
     private void BuildFeedback(VBoxContainer col, Action<Control> Add)
     {
+        var ambient = new Stepper("Ambient mode", [("0", "Off"), ("2", "After 2 minutes"), ("5", "After 5 minutes"), ("10", "After 10 minutes"), ("20", "After 20 minutes")],
+            new[] { 0, 2, 5, 10, 20 }.OrderBy(x => Math.Abs(x - Host.Settings.AmbientMinutes)).First().ToString(),
+            "Left alone on the menus, the screen turns into a slow slideshow of your library with a clock. Any button wakes it.")
+        {
+            Expands = true,
+            Wrap = false,
+        };
+        ambient.Changed += v => Host.SaveSettings(Host.Settings with { AmbientMinutes = int.Parse(v) });
+        Add(ambient);
+        Add(new ActionButton("Show ambient mode now", () => App.ShowAmbient(), "Try it: any button brings the menus back."));
         col.AddChild(UiTheme.Label("Each theme has its own set of sounds. They never play over a video or music.",
             UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
         var levels = new List<(string, string)> { ("0", "Off"), ("25", "Quiet"), ("50", "Medium"), ("75", "Loud"), ("100", "Full") };

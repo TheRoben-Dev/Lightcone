@@ -296,6 +296,208 @@ public sealed class PlexSource : IMediaSource
         return new ItemDetails(people, extras.OrderBy(e => e.IsTrailer ? 0 : 1).ToList());
     }
 
+    public bool Remote => Base is { } b && (_entry.Connections.FirstOrDefault(c => c.Uri == b) is { } c ? !c.Local || c.Relay : !Lightcone.Playback.QualityPolicy.IsLocal(b));
+
+    /// <summary>Plex's universal transcoder: HLS (streaming) or one MP4 file (downloads), H.264 + AAC.</summary>
+    internal string? TranscodeUrl(MediaItem item, Lightcone.Playback.Quality q, bool download)
+    {
+        if (Base is not { } b || q.Original || item.Kind is not (MediaKind.Movie or MediaKind.Episode) || !item.Id.StartsWith(Id + ":", StringComparison.Ordinal))
+        {
+            return null;
+        }
+        var session = Guid.NewGuid().ToString("N");
+        var query = new List<(string, string)>
+        {
+            ("path", $"/library/metadata/{RatingKey(item.Id)}"), ("mediaIndex", "0"), ("partIndex", "0"),
+            ("protocol", download ? "http" : "hls"), ("fastSeek", "1"), ("directPlay", "0"), ("directStream", "1"),
+            ("directStreamAudio", "1"), ("videoQuality", "100"), ("maxVideoBitrate", q.Kbps.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            ("videoResolution", $"{q.Width}x{q.Height}"), ("subtitles", download ? "burn" : "auto"), ("copyts", "1"),
+            ("session", session), ("X-Plex-Session-Identifier", session), ("X-Plex-Client-Identifier", _client.ClientId),
+            ("X-Plex-Product", "Lightcone"), ("X-Plex-Platform", "Generic"),
+            ("X-Plex-Client-Profile-Extra", "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264&audioCodec=aac,mp3)+add-transcode-target(type=videoProfile&context=static&protocol=http&container=mp4&videoCodec=h264&audioCodec=aac)"),
+            ("X-Plex-Token", _entry.AccessToken),
+        };
+        var file = download ? "start.mp4" : "start.m3u8";
+        return $"{b}/video/:/transcode/universal/{file}?" + string.Join("&", query.Select(x => $"{x.Item1}={Uri.EscapeDataString(x.Item2)}"));
+    }
+
+    public string? StreamUrl(MediaItem item, Lightcone.Playback.Quality quality) => TranscodeUrl(item, quality, download: false);
+
+    public string? DownloadUrl(MediaItem item, Lightcone.Playback.Quality quality) =>
+        quality.Original ? item.PlayUrl is { } u ? u + "&download=1" : null : TranscodeUrl(item, quality, download: true);
+
+    // ---- subtitle search (Plex's own OpenSubtitles integration) ----
+
+    public bool CanSearchSubtitles(MediaItem item) => Base != null && item.Kind is MediaKind.Movie or MediaKind.Episode && item.Id.StartsWith(Id + ":", StringComparison.Ordinal);
+
+    public async Task<IReadOnlyList<SubtitleResult>> SearchSubtitlesAsync(MediaItem item, string language, CancellationToken ct = default)
+    {
+        if (!CanSearchSubtitles(item) || Base is not { } b)
+        {
+            return [];
+        }
+        using var doc = await _client.GetJsonAsync($"{b}/library/metadata/{RatingKey(item.Id)}/subtitles?language={Uri.EscapeDataString(language)}&hearingImpaired=0&forced=0",
+            _entry.AccessToken, ct, TimeSpan.FromSeconds(30));
+        return ParseSubtitleSearch(doc.RootElement, language);
+    }
+
+    internal static IReadOnlyList<SubtitleResult> ParseSubtitleSearch(JsonElement root, string language) =>
+        Children(root, "Stream").Select(s => PlexClient.Str(s, "key") is { } key
+                ? new SubtitleResult(key, PlexClient.Str(s, "displayTitle") ?? PlexClient.Str(s, "title") ?? "Subtitle", PlexClient.Str(s, "providerTitle") ?? "OpenSubtitles",
+                    PlexClient.Str(s, "languageCode") ?? language, PlexClient.Num(s, "score"), PlexClient.Str(s, "hearingImpaired") is "1" or "true")
+                : null)
+            .OfType<SubtitleResult>().OrderByDescending(r => r.Score ?? 0).ToList();
+
+    public async Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default)
+    {
+        if (!CanSearchSubtitles(item) || Base is not { } b)
+        {
+            return null;
+        }
+        var rk = RatingKey(item.Id);
+        // Selecting a search result makes the server download it next to the file, as a new subtitle stream.
+        await _client.SendAsync(HttpMethod.Put, $"{b}/library/metadata/{rk}/subtitles?key={Uri.EscapeDataString(result.Id)}", _entry.AccessToken, ct);
+        using var doc = await _client.GetJsonAsync($"{b}/library/metadata/{rk}", _entry.AccessToken, ct, TimeSpan.FromSeconds(15));
+        var stream = Metadata(doc.RootElement).SelectMany(m => Arr(m, "Media")).SelectMany(m => Arr(m, "Part")).SelectMany(p => Arr(p, "Stream"))
+            .Where(s => PlexClient.Num(s, "streamType") == 3 && PlexClient.Str(s, "key") is not null)
+            .OrderByDescending(s => PlexClient.Num(s, "id") ?? 0).FirstOrDefault();
+        return stream.ValueKind == JsonValueKind.Undefined ? null : $"{b}{PlexClient.Str(stream, "key")}?X-Plex-Token={Uri.EscapeDataString(_entry.AccessToken)}";
+    }
+
+    public async Task<IReadOnlyList<string>> SimilarAsync(MediaItem item, CancellationToken ct = default)
+    {
+        if (Base is not { } b || item.Kind is not (MediaKind.Movie or MediaKind.Show) || !item.Id.StartsWith(Id + ":", StringComparison.Ordinal))
+        {
+            return [];
+        }
+        using var doc = await _client.GetJsonAsync($"{b}/library/metadata/{RatingKey(item.Id)}/similar?count=30", _entry.AccessToken, ct, TimeSpan.FromSeconds(15));
+        return Metadata(doc.RootElement).Select(x => PlexClient.Str(x, "ratingKey")).OfType<string>().Select(rk => $"{Id}:{rk}").ToList();
+    }
+
+    public bool CanCast => true;
+
+    private int _commandId;
+
+    /// <summary>Plex apps that take Plex Companion commands: the account's players on plex.tv, and ones the server sees on the network.</summary>
+    public async Task<IReadOnlyList<CastTarget>> CastTargetsAsync(CancellationToken ct = default)
+    {
+        var found = new List<CastTarget>();
+        try
+        {
+            using var doc = await _client.GetJsonAsync($"{PlexClient.PlexTv}/api/v2/resources?includeHttps=1&includeRelay=0", _entry.AccessToken, ct, TimeSpan.FromSeconds(10));
+            found.AddRange(ParsePlayers(doc.RootElement, Id, _client.ClientId));
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or PlexAuthException)
+        {
+            AppLog.Info($"plex players from plex.tv: {e.Message}");
+        }
+        if (Base is { } b)
+        {
+            try
+            {
+                using var doc = await _client.GetJsonAsync($"{b}/clients", _entry.AccessToken, ct, TimeSpan.FromSeconds(8));
+                found.AddRange(ParseClients(doc.RootElement, Id, _client.ClientId));
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or PlexAuthException)
+            {
+                AppLog.Info($"plex clients on {Name}: {e.Message}");
+            }
+        }
+        // The same player can turn up in both lists: keep the one with an address.
+        return found.GroupBy(t => t.Id).Select(g => g.OrderBy(t => t.Uri == null).First()).ToList();
+    }
+
+    internal static IEnumerable<CastTarget> ParsePlayers(JsonElement root, string sourceId, string ownId)
+    {
+        if (root.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+        foreach (var r in root.EnumerateArray())
+        {
+            var provides = (PlexClient.Str(r, "provides") ?? "").Split(',');
+            if (!provides.Contains("player") || PlexClient.Str(r, "clientIdentifier") is not { } id || id == ownId)
+            {
+                continue;
+            }
+            string? uri = null;
+            if (r.TryGetProperty("connections", out var cs) && cs.ValueKind == JsonValueKind.Array)
+            {
+                uri = cs.EnumerateArray().OrderBy(c => PlexClient.Bool(c, "local") ? 0 : 1)
+                    .Select(c => PlexClient.Str(c, "uri")).FirstOrDefault(u => u != null)?.TrimEnd('/');
+            }
+            yield return new CastTarget(sourceId, id, PlexClient.Str(r, "name") ?? "Plex player", PlexClient.Str(r, "product") ?? "Plex", uri);
+        }
+    }
+
+    internal static IEnumerable<CastTarget> ParseClients(JsonElement root, string sourceId, string ownId)
+    {
+        foreach (var c in Children(root, "Server"))
+        {
+            if (PlexClient.Str(c, "machineIdentifier") is not { } id || id == ownId)
+            {
+                continue;
+            }
+            var host = PlexClient.Str(c, "address") ?? PlexClient.Str(c, "host");
+            var port = PlexClient.Num(c, "port");
+            var uri = host != null && port is { } p ? string.Create(CultureInfo.InvariantCulture, $"http://{host}:{(int)p}") : null;
+            yield return new CastTarget(sourceId, id, PlexClient.Str(c, "name") ?? "Plex player", PlexClient.Str(c, "product") ?? "Plex", uri);
+        }
+    }
+
+    public async Task CastAsync(CastTarget target, MediaItem item, double position, CancellationToken ct = default)
+    {
+        if (Base is not { } b)
+        {
+            throw new IOException("the server isn't reachable");
+        }
+        var server = new Uri(b);
+        var key = $"/library/metadata/{RatingKey(item.Id)}";
+        var query = string.Create(CultureInfo.InvariantCulture,
+            $"key={Uri.EscapeDataString(key)}&containerKey={Uri.EscapeDataString(key)}&offset={(long)(Math.Max(0, position) * 1000)}" +
+            $"&machineIdentifier={_entry.MachineId}&address={Uri.EscapeDataString(server.Host)}&port={server.Port}&protocol={server.Scheme}" +
+            $"&token={Uri.EscapeDataString(_entry.AccessToken)}&type=video");
+        await PlayerCommandAsync(target, "playback/playMedia", query, ct);
+    }
+
+    public Task CastControlAsync(CastTarget target, CastCommand command, CancellationToken ct = default)
+    {
+        var verb = command switch
+        {
+            CastCommand.PlayPause => "playback/play",  // Companion has no toggle: play also resumes
+            CastCommand.Pause => "playback/pause",
+            CastCommand.Play => "playback/play",
+            CastCommand.Stop => "playback/stop",
+            CastCommand.SkipBack => "playback/stepBack",
+            CastCommand.SkipForward => "playback/stepForward",
+            CastCommand.Next => "playback/skipNext",
+            _ => "playback/skipPrevious",
+        };
+        return PlayerCommandAsync(target, verb, "type=video", ct);
+    }
+
+    /// <summary>Sends to the player's own address first, then through the server (which relays to players signed in to it).</summary>
+    private async Task PlayerCommandAsync(CastTarget target, string verb, string query, CancellationToken ct)
+    {
+        var id = Interlocked.Increment(ref _commandId);
+        var path = $"/player/{verb}?{query}&commandID={id}";
+        var tries = new[] { target.Uri, Base }.OfType<string>().Distinct().ToList();
+        Exception? last = null;
+        foreach (var at in tries)
+        {
+            try
+            {
+                await _client.SendToPlayerAsync(at + path, _entry.AccessToken, target.Id, ct);
+                return;
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                last = e;
+            }
+        }
+        throw new HttpRequestException($"{target.Name} didn't answer" + (last != null ? $" ({last.Message})" : ""), last);
+    }
+
     public async Task<IReadOnlyList<string>> TitlesWithAsync(Person person, CancellationToken ct = default)
     {
         if (Base is not { } b || person.SourceId != Id)
@@ -444,6 +646,10 @@ public sealed class PlexSource : IMediaSource
     internal static IEnumerable<JsonElement> Directories(JsonElement root) => Children(root, "Directory");
 
     internal static IEnumerable<JsonElement> Metadata(JsonElement root) => Children(root, "Metadata");
+
+    /// <summary>An array property of an element itself (Media → Part → Stream).</summary>
+    private static IEnumerable<JsonElement> Arr(JsonElement e, string name) =>
+        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var arr) && arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray() : [];
 
     private static IEnumerable<JsonElement> Children(JsonElement root, string name) =>
         root.TryGetProperty("MediaContainer", out var mc) && mc.TryGetProperty(name, out var arr) && arr.ValueKind == JsonValueKind.Array

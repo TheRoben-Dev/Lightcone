@@ -25,6 +25,7 @@ public partial class DetailPage : Screen
 
     // Cast, crew and extras: asked for once, then the page is rebuilt with them.
     private ItemDetails? _details;
+    private IReadOnlyList<MediaItem> _similar = [];
     private bool _detailsAsked;
     private VBoxContainer? _detailHost;
     private List<MediaRow> _detailRows = [];
@@ -147,6 +148,10 @@ public partial class DetailPage : Screen
             }
             var watched = lib.IsWatched(_item);
             Act(watched ? "Mark unwatched" : "Mark watched", ToggleWatched, $"{_item.Title}: mark {(watched ? "unwatched" : "watched")}");
+            if (DownloadActions.CanDownload(_item))
+            {
+                Act(DownloadActions.Label(_item), () => DownloadActions.Press(_item), $"{_item.Title}: download");
+            }
         }
         else if (children.Count > 0)
         {
@@ -163,6 +168,14 @@ public partial class DetailPage : Screen
             {
                 Act("Shuffle", () => MediaActions.PlayContainer(_item, shuffle: true), $"{_item.Title}: shuffle");
             }
+            if (!music && children.Any(DownloadActions.CanDownload))
+            {
+                Act("⤓  Download…", OfferShowDownload, $"{_item.Title}: download");
+            }
+        }
+        if (lib.CanCast(_item))
+        {
+            Act("Play on…", () => App.Push(new CastPage(_item, lib.PositionOf(_item) ?? 0)), $"{_item.Title}: play on another screen (a TV or phone app)");
         }
         if (_details?.Trailer is { } trailer)
         {
@@ -213,7 +226,7 @@ public partial class DetailPage : Screen
             }
         }
         col.AddChild(_detailHost);
-        if (_details != null)
+        if (_details != null || _similar.Count > 0)
         {
             FillDetails();
         }
@@ -234,7 +247,13 @@ public partial class DetailPage : Screen
             return;
         }
         _detailsAsked = true;
-        ItemDetails? details;
+        // Shows and movies list similar titles straight away (from the library), then the server's picks.
+        if (_item.Kind is MediaKind.Movie or MediaKind.Show)
+        {
+            _similar = Host.Library.SimilarInLibrary(_item);
+        }
+        var similar = _item.Kind is MediaKind.Movie or MediaKind.Show ? Host.Library.SimilarAsync(_item) : Task.FromResult<IReadOnlyList<MediaItem>>([]);
+        ItemDetails? details = null;
         try
         {
             details = await Host.Library.DetailsAsync(_item);
@@ -242,14 +261,35 @@ public partial class DetailPage : Screen
         catch (Exception e)
         {
             AppLog.Info($"details of {_item.Id}: {e.Message}");
-            return;
         }
-        if (!IsInstanceValid(this) || details == null || (details.People.Count == 0 && details.Extras.Count == 0))
+        IReadOnlyList<MediaItem> more = [];
+        try
+        {
+            more = await similar;
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"similar to {_item.Id}: {e.Message}");
+        }
+        if (!IsInstanceValid(this))
         {
             return;
         }
-        _details = details;
-        Rebuild();
+        var changed = false;
+        if (details != null && (details.People.Count > 0 || details.Extras.Count > 0))
+        {
+            _details = details;
+            changed = true;
+        }
+        if (more.Count > 0 && !more.Select(m => m.Id).SequenceEqual(_similar.Select(m => m.Id)))
+        {
+            _similar = more;
+            changed = true;
+        }
+        if (changed || _similar.Count > 0)
+        {
+            Rebuild();
+        }
     }
 
     /// <summary>Stand-in tile items for people: square photo, name, part or job.</summary>
@@ -278,12 +318,12 @@ public partial class DetailPage : Screen
 
     private void FillDetails()
     {
-        if (_details == null || _detailHost == null)
+        if (_detailHost == null)
         {
             return;
         }
         var lib = Host.Library;
-        if (_details.People.Count > 0)
+        if (_details?.People.Count > 0)
         {
             var people = _details.People;
             var items = people.Select(PersonItem).ToList();
@@ -291,12 +331,18 @@ public partial class DetailPage : Screen
             _detailHost.AddChild(row);
             _detailRows.Add(row);
         }
-        if (_details.Extras.Count > 0)
+        if (_details?.Extras.Count > 0)
         {
             var extras = _details.Extras;
             var items = extras.Select(ExtraItem).ToList();
             var row = new MediaRow(new HomeRow("extras", extras.Count == 1 && extras[0].IsTrailer ? "Trailer" : "Trailers & extras", items, Wide: true), lib, Desktop,
                 it => MediaActions.PlayExtra(_item, extras[items.IndexOf(it)]), scale: 0.8f);
+            _detailHost.AddChild(row);
+            _detailRows.Add(row);
+        }
+        if (_similar.Count > 0)
+        {
+            var row = new MediaRow(new HomeRow("similar", "More like this", _similar), lib, Desktop, MediaActions.Open, scale: 0.85f);
             _detailHost.AddChild(row);
             _detailRows.Add(row);
         }
@@ -678,6 +724,25 @@ public partial class DetailPage : Screen
             }
         }
         LinkDetails();
+    }
+
+    /// <summary>A show's Download: the next few episodes to watch, or the season on screen.</summary>
+    private void OfferShowDownload()
+    {
+        var options = new List<(string, Action)>();
+        var next = DownloadActions.NextEpisodes(_item, 5);
+        if (next.Count > 0)
+        {
+            options.Add(($"The next {next.Count} to watch (from {RecapPage.Code(next[0]) ?? next[0].Title})", () => DownloadActions.Offer(next, _item.Title)));
+        }
+        if (CurrentSeason is { } season && season.Episodes.Count(e => e.Playable) > 0)
+        {
+            var eps = season.Episodes.Where(e => e.Playable).ToList();
+            options.Add(($"All of {season.Title} ({eps.Count} episodes)", () => DownloadActions.Offer(eps, $"{_item.Title}: {season.Title}")));
+        }
+        options.Add(("See downloads", () => App.Push(new DownloadsPage())));
+        options.Add(("Cancel", () => { }));
+        App.Push(new ChoicePage($"Download {_item.Title} to watch offline:", [.. options]));
     }
 
     private void ToggleSeasonWatched()

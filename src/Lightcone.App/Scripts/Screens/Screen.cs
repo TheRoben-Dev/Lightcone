@@ -336,7 +336,7 @@ public abstract partial class Screen : MarginContainer
 
     protected static Control Section(string text)
     {
-        var l = UiTheme.Label(text.ToUpperInvariant(), UiTheme.SmallSize, UiTheme.Dim);
+        var l = UiTheme.Label(Loc.Upper(text), UiTheme.SmallSize, UiTheme.Dim);
         l.CustomMinimumSize = new Vector2(0, 34);
         l.VerticalAlignment = VerticalAlignment.Bottom;
         if (UiTheme.Nightgrid)

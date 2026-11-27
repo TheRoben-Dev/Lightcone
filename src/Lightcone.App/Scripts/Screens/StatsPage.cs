@@ -20,7 +20,7 @@ public partial class StatsPage : Screen
         var col = Column(Desktop ? 16 : 20);
         AddChild(Scroller(col));
         var heading = "Your stats";
-        col.AddChild(UiTheme.Label(UiTheme.Mono ? heading.ToUpperInvariant() : heading, Desktop ? UiTheme.TitleSize - 6 : UiTheme.TitleSize - 2, UiTheme.Text));
+        col.AddChild(UiTheme.Label(UiTheme.Mono ? Loc.Upper(heading) : heading, Desktop ? UiTheme.TitleSize - 6 : UiTheme.TitleSize - 2, UiTheme.Text));
         var stats = Try(() => WatchStats.Compute(Host.Library), new WatchStats(), "your watch history", col);
         if (stats.Empty)
         {
@@ -135,7 +135,7 @@ public partial class StatsPage : Screen
         var col = Column(2);
         panel.AddChild(col);
         col.AddChild(UiTheme.Label(value, Desktop ? UiTheme.TitleSize - 6 : UiTheme.TitleSize - 2, accent ? UiTheme.AccentText : UiTheme.Text));
-        col.AddChild(UiTheme.Label(label.ToUpperInvariant(), UiTheme.SmallSize, UiTheme.Dim));
+        col.AddChild(UiTheme.Label(Loc.Upper(label), UiTheme.SmallSize, UiTheme.Dim));
         return panel;
     }
 

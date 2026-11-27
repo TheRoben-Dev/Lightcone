@@ -27,7 +27,7 @@ public enum WatchFilter
 /// Every source's items in one place, plus what the home screen shows. Both UI modes read
 /// from here, which is what keeps them at feature parity.
 /// </summary>
-public sealed class MediaLibrary
+public sealed partial class MediaLibrary
 {
     // Copy-on-write: sources are added from background work (a Plex sign-in) while the UI reads.
     private volatile IReadOnlyList<IMediaSource> _sources = [];

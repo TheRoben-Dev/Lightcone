@@ -78,7 +78,7 @@ public partial class LibraryScreen : Screen
         head.AddThemeConstantOverride("separation", 14);
         col.AddChild(head);
         var heading = _collections ? $"{_title} · Collections" : filterLabel != null ? $"{_title} · {filterLabel}" : _title;
-        head.AddChild(UiTheme.Label(UiTheme.Mono ? heading.ToUpperInvariant() : heading, Desktop ? UiTheme.TitleSize - 8 : UiTheme.TitleSize - 4, UiTheme.Text));
+        head.AddChild(UiTheme.Label(UiTheme.Mono ? Loc.Upper(heading) : heading, Desktop ? UiTheme.TitleSize - 8 : UiTheme.TitleSize - 4, UiTheme.Text));
         var noun = _collections ? (items.Count == 1 ? "collection" : "collections") : items.Count == 1 ? "item" : "items";
         var count = UiTheme.Label($"{items.Count} {noun}", UiTheme.SmallSize + 1, UiTheme.Dim);
         count.SizeFlagsVertical = SizeFlags.ShrinkCenter;
