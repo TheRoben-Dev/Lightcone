@@ -20,7 +20,7 @@ public partial class MediaRow : VBoxContainer
         AddChild(title);
         var scroll = _scroll = new ScrollContainer
         {
-            FollowFocus = true,
+            FollowFocus = false,
             VerticalScrollMode = ScrollContainer.ScrollMode.Disabled,
             HorizontalScrollMode = desktop ? ScrollContainer.ScrollMode.Auto : ScrollContainer.ScrollMode.ShowNever,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
@@ -29,13 +29,16 @@ public partial class MediaRow : VBoxContainer
         var hbox = new HBoxContainer();
         hbox.AddThemeConstantOverride("separation", desktop ? 16 : 22);
         // Room for the focus ring and the focus pop.
+        // The ends get more: the first and last cards (and their focus pop) never touch the edge.
         var pad = new MarginContainer();
-        pad.AddThemeConstantOverride("margin_left", 6);
-        pad.AddThemeConstantOverride("margin_right", 6);
+        pad.AddThemeConstantOverride("margin_left", 10);
+        pad.AddThemeConstantOverride("margin_right", 24);
         pad.AddThemeConstantOverride("margin_top", 8);
         pad.AddThemeConstantOverride("margin_bottom", 8);
         pad.AddChild(hbox);
         scroll.AddChild(pad);
+        // Glides along with the selector, keeping the next card or so in view ahead of it.
+        scroll.AddChild(new ScrollFollower { Horizontal = true, Lead = 0.22f });
         // One shape per row, so every card in it is the same height (an album among movies gets a
         // poster frame with its cover fitted inside). The row is as tall as its cards.
         var shapes = row.Items.Select(i => PosterTile.ShapeFor(i, row.Wide)).Distinct().ToList();

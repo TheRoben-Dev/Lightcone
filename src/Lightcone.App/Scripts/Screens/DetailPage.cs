@@ -22,6 +22,84 @@ public partial class DetailPage : Screen
     private MediaRow? _strip;
     private VBoxContainer? _episodes;
     private List<Control> _actionButtons = [];
+    private Button? _downloadButton;
+    private double _downloadClock;
+    private readonly Dictionary<Control, NodePath> _belowActions = [];
+
+    /// <summary>
+    /// Action buttons on more than one line: up and down move between the lines (nearest button);
+    /// only the last line goes on down to what's below.
+    /// </summary>
+    private void WireActionLines()
+    {
+        var live = _actionButtons.Where(IsInstanceValid).ToList();
+        if (live.Count == 0)
+        {
+            return;
+        }
+        var lines = live.GroupBy(b => Mathf.RoundToInt(b.Position.Y)).OrderBy(g => g.Key).Select(g => g.ToList()).ToList();
+        Control Nearest(List<Control> line, Control from) =>
+            line.MinBy(b => Math.Abs(b.Position.X + b.Size.X / 2 - (from.Position.X + from.Size.X / 2)))!;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            foreach (var b in lines[i])
+            {
+                if (i > 0)
+                {
+                    b.FocusNeighborTop = Nearest(lines[i - 1], b).GetPath();
+                }
+                else if (b.FocusNeighborTop is { } up && up != b.GetPath() && live.Any(o => o.GetPath() == up))
+                {
+                    b.FocusNeighborTop = b.GetPath();  // was a line below the top one before a re-flow
+                }
+                if (i < lines.Count - 1)
+                {
+                    b.FocusNeighborBottom = Nearest(lines[i + 1], b).GetPath();
+                }
+                else if (_belowActions.TryGetValue(_actionButtons[0], out var below))
+                {
+                    b.FocusNeighborBottom = below;
+                }
+                else if (live.Any(o => o != b && o.GetPath() == b.FocusNeighborBottom))
+                {
+                    // Pointed at a button on a line that's gone after a re-flow: whatever the
+                    // first line's buttons go down to, or nowhere.
+                    var other = lines[0][0].FocusNeighborBottom;
+                    b.FocusNeighborBottom = live.Any(o => o.GetPath() == other) ? b.GetPath() : other;
+                }
+            }
+        }
+    }
+
+    /// <summary>Points the action buttons' down at <paramref name="target"/> (the last line only, when wrapped).</summary>
+    private void ActionsDownTo(Control target)
+    {
+        foreach (var b in _actionButtons)
+        {
+            b.FocusNeighborBottom = target.GetPath();
+        }
+        if (_actionButtons.Count > 0)
+        {
+            _belowActions[_actionButtons[0]] = target.GetPath();
+        }
+        WireActionLines();
+    }
+
+    public override void _Process(double delta)
+    {
+        base._Process(delta);
+        _downloadClock -= delta;
+        if (_downloadClock > 0 || _downloadButton == null || !IsInstanceValid(_downloadButton))
+        {
+            return;
+        }
+        _downloadClock = 0.5;
+        var text = DownloadActions.Label(_item);
+        if (_downloadButton.Text != text)
+        {
+            _downloadButton.Text = text;
+        }
+    }
 
     // Cast, crew and extras: asked for once, then the page is rebuilt with them.
     private ItemDetails? _details;
@@ -67,6 +145,8 @@ public partial class DetailPage : Screen
     protected override void Build()
     {
         _first = null;
+        _downloadButton = null;
+        _belowActions.Clear();
         _strip = null;
         _episodes = null;
         var lib = Host.Library;
@@ -117,8 +197,11 @@ public partial class DetailPage : Screen
             ov.CustomMinimumSize = new Vector2(360, 0);
             info.AddChild(ov);
         }
-        var actions = new HBoxContainer();
-        actions.AddThemeConstantOverride("separation", 14);
+        // Wraps onto a second line when the buttons don't fit (1280x800 with long labels).
+        var actions = new HFlowContainer();
+        actions.AddThemeConstantOverride("h_separation", 14);
+        actions.AddThemeConstantOverride("v_separation", 12);
+        actions.SortChildren += () => Callable.From(WireActionLines).CallDeferred();
         info.AddChild(actions);
         var buttons = new List<Control>();
         void Act(string label, Action a, string help)
@@ -151,6 +234,7 @@ public partial class DetailPage : Screen
             if (DownloadActions.CanDownload(_item))
             {
                 Act(DownloadActions.Label(_item), () => DownloadActions.Press(_item), $"{_item.Title}: download");
+                _downloadButton = (Button)buttons[^1];
             }
         }
         else if (children.Count > 0)
@@ -190,6 +274,7 @@ public partial class DetailPage : Screen
         Focus.Row(buttons);
         _first = buttons.FirstOrDefault();
         _actionButtons = buttons;
+        AddTrivia(info);
         if (_item.Kind == MediaKind.Show)
         {
             AddLeftOff(info);
@@ -224,6 +309,7 @@ public partial class DetailPage : Screen
             {
                 b.FocusNeighborBottom = rows[0].GetPath();
             }
+            _belowActions[buttons[0]] = rows[0].GetPath();
         }
         col.AddChild(_detailHost);
         if (_details != null || _similar.Count > 0)
@@ -234,6 +320,54 @@ public partial class DetailPage : Screen
         {
             LoadDetails();
         }
+    }
+
+    // ---- trivia ----
+
+    /// <summary>A small "Did you know?" box under the buttons, filled in when Wikipedia has something.</summary>
+    private async void AddTrivia(VBoxContainer info)
+    {
+        if (!Lightcone.Host.Library.Trivia.Applies(_item) || !Host.Settings.Trivia)
+        {
+            return;
+        }
+        var host = new VBoxContainer { Visible = false };
+        info.AddChild(host);
+        Lightcone.Host.Library.TriviaFact? fact = null;
+        try
+        {
+            fact = await Host.Trivia.GetAsync(_item);
+        }
+        catch (Exception e)
+        {
+            AppLog.Info($"trivia for {_item.Id}: {e.Message}");
+        }
+        if (fact == null || !IsInstanceValid(host))
+        {
+            return;
+        }
+        var box = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
+        box.AddThemeStyleboxOverride("panel", UiTheme.Box(UiTheme.Panel with { A = 0.85f }, 1, 10, UiTheme.Line));
+        var inner = new VBoxContainer();
+        inner.AddThemeConstantOverride("separation", 4);
+        var margin = new MarginContainer();
+        foreach (var (side, v) in new[] { ("left", 14), ("right", 14), ("top", 10), ("bottom", 10) })
+        {
+            margin.AddThemeConstantOverride($"margin_{side}", v);
+        }
+        margin.AddChild(inner);
+        box.AddChild(margin);
+        var head = UiTheme.Label(UiTheme.Mono ? Loc.Upper("Did you know?") : "Did you know?", UiTheme.SmallSize, UiTheme.AccentText);
+        inner.AddChild(head);
+        var text = UiTheme.Label(fact.Text, UiTheme.SmallSize + 1, UiTheme.Text, wrap: true);
+        text.MaxLinesVisible = 3;
+        text.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
+        text.AutoTranslateMode = AutoTranslateModeEnum.Disabled;
+        inner.AddChild(text);
+        inner.AddChild(UiTheme.Label("From " + fact.Source, UiTheme.SmallSize - 1, UiTheme.Dim));
+        host.AddChild(new Control { CustomMinimumSize = new Vector2(0, 2) });
+        host.AddChild(box);
+        host.Visible = true;
     }
 
     // ---- cast, crew and extras ----
@@ -365,10 +499,7 @@ public partial class DetailPage : Screen
         }
         else
         {
-            foreach (var b in _actionButtons)
-            {
-                b.FocusNeighborBottom = first.GetPath();
-            }
+            ActionsDownTo(first);
         }
     }
 
@@ -428,7 +559,7 @@ public partial class DetailPage : Screen
         var tiles = new List<Control>();
         foreach (var m in members)
         {
-            var tile = new PosterTile(m, shape, PosterTile.ProgressOf(lib, m), Desktop, MediaActions.Open);
+            var tile = new PosterTile(m, shape, PosterTile.ProgressOf(lib, m), Desktop, MediaActions.Open, FillScale());
             grid.AddChild(tile);
             tiles.Add(tile);
         }
@@ -437,6 +568,10 @@ public partial class DetailPage : Screen
         foreach (var b in buttons)
         {
             b.FocusNeighborBottom = tiles[0].GetPath();
+        }
+        if (buttons.Count > 0)
+        {
+            _belowActions[buttons[0]] = tiles[0].GetPath();
         }
         for (var i = 0; i < Math.Min(columns, tiles.Count); i++)
         {
@@ -533,6 +668,10 @@ public partial class DetailPage : Screen
             {
                 b.FocusNeighborBottom = SelectedTile()!.GetPath();
             }
+            if (buttons.Count > 0)
+            {
+                _belowActions[buttons[0]] = SelectedTile()!.GetPath();
+            }
         }
         _episodes = Column(Desktop ? 8 : 10);
         col.AddChild(_episodes);
@@ -583,10 +722,7 @@ public partial class DetailPage : Screen
             if (SelectedTile() is { } tile)
             {
                 _strip.Reveal(tile);
-                foreach (var b in _actionButtons)
-                {
-                    b.FocusNeighborBottom = tile.GetPath();
-                }
+                ActionsDownTo(tile);
             }
         }
         FillEpisodes();
@@ -718,10 +854,7 @@ public partial class DetailPage : Screen
         }
         else
         {
-            foreach (var b in _actionButtons)
-            {
-                b.FocusNeighborBottom = down.GetPath();
-            }
+            ActionsDownTo(down);
         }
         LinkDetails();
     }

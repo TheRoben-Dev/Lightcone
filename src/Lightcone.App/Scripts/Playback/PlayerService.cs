@@ -569,6 +569,7 @@ public partial class PlayerService : Node
         }
         Chapters = [];
         Current = item;
+        _frameShown = false;
         Position = start;
         _seekTarget = null;
         Duration = item.Duration;
@@ -830,6 +831,10 @@ public partial class PlayerService : Node
                     Tracks = _mpv.Tracks;
                     HasVideo = Tracks.Any(t => t.Kind == TrackKind.Video) && Current?.Kind is not (MediaKind.Track or MediaKind.Album);
                     Chapters = Chapter.ParseList(_mpv.GetString("chapter-list"));
+                    if (!HasVideo)
+                    {
+                        _frameShown = true;
+                    }
                     ApplyAudioFilters();
                     AppLog.Info($"loaded: {Tracks.Count} tracks, {Chapters.Count} chapters, hwdec {HwdecCurrent}, {_mpv.GetString("video-codec")}");
                     Changed?.Invoke();
@@ -950,18 +955,36 @@ public partial class PlayerService : Node
         return new Vector2I(Math.Max(2, (int)(w * scale)) & ~1, Math.Max(2, (int)(h * scale)) & ~1);
     }
 
+    /// <summary>
+    /// Set by the player while nobody is interacting (controls hidden, no input): frames are then
+    /// presented at the video's own cadence, which a VRR screen follows. Otherwise the UI runs at
+    /// the display's full rate.
+    /// </summary>
+    public bool Paced { get; set; }
+
+    private volatile bool _frameShown;
+
+    /// <summary>The current item's first picture has been drawn (or it has no picture): loading is over.</summary>
+    public bool FrameShown => _frameShown;
+
+    /// <summary>True while a new video frame is waiting to be drawn.</summary>
+    public bool FramePending => _render?.FramePending == true;
+
     private void DrawFrame()
     {
         if (_render == null || !HasVideo)
         {
             return;
         }
+        // Never on the software path: that renders on the main loop, where waiting stalls input.
+        _render.PaceToVideo = Paced && !_software;
         EnsureTexture(TargetSize());
         if (_software)
         {
             if (_render.TakeFrame())
             {
                 _render.RenderSoftware(_buffer, _size.X, _size.Y);
+                _frameShown = true;
                 _image!.SetData(_size.X, _size.Y, false, Image.Format.Rgba8, _buffer);
                 _texture!.Update(_image);
             }
@@ -987,6 +1010,7 @@ public partial class PlayerService : Node
             var prev = Gl.BoundFramebuffer();
             _render.RenderGl(_fbo, size.X, size.Y);
             Gl.Bind(prev);
+            _frameShown = true;
             _render.ReportSwap();
         }));
     }

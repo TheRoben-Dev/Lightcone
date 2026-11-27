@@ -1,0 +1,214 @@
+# Lines shown under the projector while a movie or episode loads, one at random each time.
+# One line per tip. Lines starting with # are ignored. Keep them short (one line at 1280x800).
+Watch tip: dim the room lights to cut glare and lift contrast.
+Watch tip: a soft light behind the TV (bias lighting) eases eye strain.
+Watch tip: turn off motion smoothing on your TV for films; it causes the "soap opera" look.
+Watch tip: Filmmaker Mode on many TVs shows a film as it was graded.
+Watch tip: sit about 1.5 times the screen's diagonal away for a 4K TV.
+Watch tip: for 1080p, about 2.5 times the diagonal is a comfortable distance.
+Watch tip: headphones make dialogue clearer at low volume.
+Watch tip: let your eyes adjust for a minute before a dark film starts.
+Watch tip: subtitles in the original language help with accents and mumbled lines.
+Watch tip: watch foreign films with subtitles rather than dubs to hear the real performances.
+Watch tip: an old film in 4:3 is meant to have bars at the sides. Don't stretch it.
+Watch tip: black bars above and below mean a wide film shown whole.
+Watch tip: turn notifications off on your phone; films are better uninterrupted.
+Watch tip: snacks before the opening titles, not during the twist.
+Watch tip: credits often hide a scene at the end. Superhero films especially.
+Watch tip: rewatching a mystery shows how carefully the clues were placed.
+Watch tip: a double feature works best with films that share a theme, not a genre.
+Watch tip: watch a director's films in order to see their style grow.
+Watch tip: put the phone away and you'll notice the sound design.
+Watch tip: night mode or dynamic range compression helps if you can't play loud.
+Watch tip: clean the screen with a dry microfibre cloth, never glass cleaner.
+Watch tip: HDR looks best in a dark room with the TV's brightness at its default.
+Watch tip: a film's first five minutes usually tell you its rules.
+Watch tip: a pause for a drink is fine. The film will wait.
+Watch tip: try a silent film once; the music does more than you'd expect.
+Watch tip: animated films reward a big screen; look at the backgrounds.
+Watch tip: documentaries are better with the lights on and a notebook nearby.
+Watch tip: if a film feels slow, watch the edges of the frame.
+Watch tip: listen for the score's main theme coming back in different moods.
+Watch tip: a series binge goes better with a break between seasons.
+Watch tip: the cold open of an episode is part of the story; don't skip it by habit.
+Watch tip: commentary tracks are a free film school.
+Watch tip: blankets count as home cinema equipment.
+Cinema: the first public film screening for a paying audience was in Paris in 1895.
+Cinema: early audiences reportedly ducked at a filmed train arriving at a station.
+Cinema: 24 frames per second became the standard when sound arrived in the late 1920s.
+Cinema: before sound, films ran at varying speeds, often between 16 and 20 frames per second.
+Cinema: a projector's shutter blinks each frame twice or three times to hide flicker.
+Cinema: nitrate film stock burned so easily that projection booths were built fireproof.
+Cinema: the switch between reels was signalled by small dots in the top corner of the frame.
+Cinema: a feature film used to arrive at the cinema on several reels of about 20 minutes each.
+Cinema: the platter system let one projector run a whole film without changing reels.
+Cinema: the cone of light from a projector is visible because of dust and smoke in the air.
+Cinema: the light cone gave this app its name.
+Cinema: the first feature-length sound film with synced dialogue arrived in 1927.
+Cinema: Technicolor's famous process used three strips of film for one colour image.
+Cinema: early widescreen formats were invented to pull audiences away from television.
+Cinema: anamorphic lenses squeeze a wide picture onto normal film and unsqueeze it in the projector.
+Cinema: the "Wilhelm scream" sound effect has been reused in hundreds of films.
+Cinema: Foley artists record footsteps and rustles in sync with the picture after filming.
+Cinema: a film's "magic hour" is the soft light just after sunrise or before sunset.
+Cinema: the dolly zoom moves the camera and zooms the lens at once, so the background warps.
+Cinema: a "MacGuffin" is the thing everyone in a story chases, which matters less than the chase.
+Cinema: Chekhov's gun says a detail shown early should pay off later.
+Cinema: the Kuleshov effect: the same face reads differently depending on the shot next to it.
+Cinema: the 180-degree rule keeps the camera on one side of a conversation so nobody seems to swap places.
+Cinema: a single long take with no cuts is called a oner.
+Cinema: early film sets were lit by sunlight, so studios had glass roofs.
+Cinema: Hollywood grew partly because California had sun nearly all year.
+Cinema: the clapperboard's clap gives the editor a point to sync sound and picture.
+Cinema: film grain comes from tiny light-sensitive silver crystals in the emulsion.
+Cinema: 70 mm prints carry about three and a half times the picture area of 35 mm.
+Cinema: IMAX film runs horizontally through the projector, fifteen perforations per frame.
+Cinema: drive-in cinemas once broadcast the soundtrack on an FM radio frequency.
+Cinema: the intermission was common for long epics, often with overture music.
+Cinema: a director's cut restores what a studio cut, sometimes for better and sometimes not.
+Cinema: the matte painting let a few painted panes of glass stand in for whole cities.
+Cinema: stop-motion animators move a puppet a tiny bit for every single frame.
+Cinema: a minute of stop motion can take a week or more to shoot.
+Cinema: hand-drawn animation often ran "on twos", one drawing held for two frames.
+Cinema: the rotoscope traced live-action footage to make animation move realistically.
+Cinema: early colour cartoons used a three-strip process before most live-action films did.
+Cinema: the first film awards ceremony of the Academy took place in 1929 and lasted about fifteen minutes.
+Cinema: cinema organs played along to silent films and could make sound effects too.
+Cinema: a "film within a film" is called a mise en abyme.
+Cinema: a jump cut skips ahead within the same shot, and was once considered a mistake.
+Cinema: "day for night" shoots in daylight and darkens the picture to look like night.
+Cinema: rear projection put moving scenery behind actors sitting in a still car.
+Cinema: the green screen works because green is far from human skin tones.
+Cinema: motion capture records an actor's movement to drive a digital character.
+Cinema: film scores are often recorded while the orchestra watches the picture on a big screen.
+Cinema: a temp track is placeholder music used while editing, and composers often dread it.
+Cinema: the trailer got its name because it originally played after the main film.
+Cinema: projectionists once spliced reels together by hand before each show.
+Cinema: the "cigarette burns" at the end of a reel told the projectionist to switch.
+Cinema: a cinema's silver screen reflected more light, from the days of dim projectors.
+Cinema: some screens are perforated with tiny holes so the speakers behind them can be heard.
+Cinema: the frame rate of most TV in Europe was 25, close enough to 24 to speed films up slightly.
+Cinema: a film sped up from 24 to 25 frames finishes about four percent sooner.
+Cinema: the "Dutch angle" tilts the camera to make a scene feel uneasy.
+Cinema: a split diopter keeps something close and something far both in focus.
+Cinema: the shot-reverse-shot is how nearly every film conversation is cut.
+Cinema: a montage compresses days or years into a minute of music and images.
+Cinema: the opening crawl scrolling into the distance is borrowed from old movie serials.
+Cinema: film serials ended each chapter on a cliffhanger to bring audiences back next week.
+Cinema: the word "cliffhanger" may come from serial heroines left hanging off cliffs.
+Cinema: early cinemas called "nickelodeons" charged a nickel for admission.
+Cinema: popcorn became a cinema staple in the Great Depression, as a cheap treat.
+Cinema: the first multiplex cinemas opened in the 1960s.
+Cinema: a film's aspect ratio of 2.39:1 is often still called "Scope".
+Cinema: the standard flat cinema ratio is 1.85:1.
+Cinema: the Academy ratio, 1.37:1, framed most films before widescreen.
+Cinema: TV's 16:9 shape was picked as a compromise between the common film ratios.
+Cinema: a lens flare was once a flaw; now it is often added on purpose.
+Cinema: the Steadicam let an operator walk and run with a smooth, floating shot.
+Cinema: vertigo-inducing staircase shots helped make the dolly zoom famous.
+Cinema: test screenings sometimes change a film's ending before release.
+Cinema: dubbing actors in many countries become the familiar voice of a star for decades.
+Cinema: subtitles were first burned into film prints with acid or etching.
+Cinema: the colour grade can make the same scene feel warm, cold, safe or tense.
+Cinema: the teal-and-orange look became popular because it separates skin from background.
+Cinema: archivists restore old films frame by frame, often from several damaged copies.
+Cinema: many silent films are lost forever; nitrate decay and fires took them.
+Cinema: home video in the 1980s let people own films for the first time.
+Cinema: a projector bulb in a cinema can be several thousand watts.
+Cinema: digital projection replaced most film projectors in the early 2010s.
+Cinema: some directors still shoot on film for its texture and colour.
+Snack: classic popcorn with real butter and a pinch of fine salt beats any microwave bag.
+Snack: toss popcorn with smoked paprika and parmesan for a grown-up bowl.
+Snack: a little brown butter and maple syrup on popcorn turns it into caramel corn's cousin.
+Snack: season popcorn while it's hot, so the salt sticks.
+Snack: pop the kernels in a pot with a lid cracked open; steam escapes and it stays crisp.
+Snack: horror night calls for something you can eat without looking: nuts, pretzels, popcorn.
+Snack: a mix of sweet and salty in one bowl keeps you from getting up mid-film.
+Snack: Italian film? Olives, focaccia and a little cheese board.
+Snack: samurai film night pairs well with onigiri or edamame.
+Snack: westerns go nicely with chili or a plate of nachos.
+Snack: watching a Studio Ghibli-style film? Make something cosy, like ramen or a toastie.
+Snack: a Christmas film without hot chocolate is just a film.
+Snack: sci-fi marathon fuel: something easy to share, like a pizza cut into squares.
+Snack: avoid noisy wrappers; open everything before the lights go down.
+Snack: pre-portion snacks into small bowls so no one rustles a bag during the quiet bits.
+Snack: crunchy snacks are loud; save them for the action scenes.
+Snack: frozen grapes are a quiet, sweet and surprisingly good movie snack.
+Snack: chocolate-covered raisins or peanuts are the classic cinema candy for a reason.
+Snack: dark chocolate with sea salt goes well with a slow drama.
+Snack: a bowl of cut fruit balances out the candy.
+Snack: make the snacks match the film's setting; it's a fun way to set the mood.
+Snack: homemade nachos: chips, cheese, jalapeños, five minutes under the grill.
+Snack: a sharing platter means nobody has to pause for seconds.
+Snack: put napkins within reach before you press play; buttery fingers and remotes don't mix.
+Snack: keep a small bin or bowl for wrappers and shells nearby.
+Drink: a cold soda with lots of ice is the cinema classic for good reason.
+Drink: lemonade or iced tea suits a summer blockbuster.
+Drink: a hot tea with honey suits a rainy-day period drama.
+Drink: hot chocolate with a dash of cinnamon for winter films.
+Drink: noir film? A short, dark drink in a heavy glass sets the scene.
+Drink: a sparkling water with lime is refreshing and quiet to drink.
+Drink: use a cup with a lid or a stable glass if you're on the sofa in the dark.
+Drink: a thermos keeps tea hot through a long film without getting up.
+Drink: coffee is great for a late double feature, but not after midnight.
+Drink: pour drinks before the film starts so the fridge door stays shut.
+Drink: keep a glass of water nearby; salty snacks make you thirsty.
+Drink: a milkshake turns any 1950s-set film into a diner night.
+Light: turn off the main ceiling light; overhead light washes out the picture.
+Light: a dim lamp behind the screen is easier on the eyes than total darkness.
+Light: warm, low light around the room feels more like a cinema than cold white light.
+Light: close the curtains for daytime viewing, or the picture loses its blacks.
+Light: avoid lamps that reflect in the screen; move them to the side or behind you.
+Light: a string of warm fairy lights makes a living room feel like a small cinema.
+Light: dim the lights slowly as the film starts, just like a cinema does.
+Light: phone screens in a dark room are brighter than you think; flip it face down.
+Light: a little floor-level light helps you find snacks without a torch.
+Light: watching on a handheld? Lower the screen brightness in a dark room to avoid eye strain.
+Light: candles look lovely, but keep them away from blankets and popcorn.
+Sound: turn the volume up a little more than usual; films are mixed to be loud.
+Sound: point speakers towards your seat, at ear height if you can.
+Sound: a soundbar is a big step up from built-in TV speakers.
+Sound: closed doors and a rug on the floor make a room sound far better.
+Sound: soft furnishings soak up echo, so dialogue becomes clearer.
+Sound: headphones are a private cinema when the house is asleep.
+Sound: turn off anything that hums: fans, dishwashers, the washing machine.
+Sound: open-back headphones sound more spacious; closed-back ones keep the sound to yourself.
+Sound: if dialogue gets lost, a centre speaker or a dialogue mode helps.
+Seat: sit centred to the screen; the sound and picture are made for that spot.
+Seat: your eyes should be level with the middle of the screen, or a little below.
+Seat: a few cushions behind your back make a two-hour film feel shorter.
+Seat: a blanket on the sofa is half of the home cinema experience.
+Seat: put the comfiest seat in the middle and save it for the person who chose the film.
+Seat: a footstool or ottoman turns any chair into a recliner.
+Seat: on a long flight or train, a neck pillow and headphones make a tiny cinema.
+Seat: a tablet or Deck propped up at eye level saves your neck.
+Seat: beanbags on the floor make a kids' movie night feel like an event.
+Seat: arrange chairs in a slight arc so everyone faces the screen.
+Room: tidy the coffee table first; clutter in the corner of your eye is a distraction.
+Room: a slightly cool room keeps you awake through a long film.
+Room: open a window for ten minutes before the film; fresh air helps you stay alert.
+Room: a blanket fort is a perfectly valid cinema auditorium.
+Room: if there's a window behind you, close the blinds to stop reflections on the screen.
+Room: put pets' toys and bowls down before the film, or you'll be up during the climax.
+Room: projectors love a plain white wall or a cheap matte screen.
+Room: a backyard screen and a projector make a summer night unforgettable.
+Focus: put phones in another room or face down; the film deserves your full attention.
+Focus: turn on "do not disturb" before pressing play.
+Focus: agree on a "no talking until the credits" rule for the big films.
+Focus: go to the bathroom before the opening titles, like at the cinema.
+Focus: decide on the film before you sit down; choosing can take longer than watching.
+Focus: watch the first ten minutes before judging; many films start slow on purpose.
+Focus: give subtitled films your full attention; they're hard to follow while scrolling.
+Focus: a scheduled film night makes it feel like an event, not background noise.
+Focus: switch off the house's chat notifications on the TV, too.
+Focus: keep the remote in one place so nobody hunts for it mid-scene.
+Night: make it a theme night: dress code, snacks and a film to match.
+Night: print or write a small "ticket" for each guest; kids love it.
+Night: a short film before the feature is a great way to warm up the room.
+Night: take turns picking the film; you'll see things you'd never choose.
+Night: pick the film the day before so everyone can look forward to it.
+Night: a double feature works best with a short break and fresh snacks in between.
+Night: end a horror night with a comedy so everyone can sleep.
+Night: let the credits roll for a minute; it's a nice way to land after a big film.
+Night: talk about the film afterwards; it's half the fun.
+Night: keep a list of films you want to see so choosing is quick.

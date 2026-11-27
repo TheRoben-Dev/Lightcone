@@ -72,6 +72,7 @@ public partial class Sidebar : PanelContainer
         }
 
         col.AddChild(new Control { SizeFlagsVertical = SizeFlags.ExpandFill });
+        col.AddChild(new DownloadIndicator(15));
         var pad = new Button { Text = "🎮  Controller mode", Alignment = HorizontalAlignment.Left, Flat = true, TooltipText = "Switch to the 10-foot layout (also in Settings → Layout)" };
         pad.Pressed += () => ControllerMode?.Invoke();
         col.AddChild(pad);

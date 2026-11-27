@@ -415,6 +415,12 @@ public partial class SettingsScreen : TwoPaneScreen
             Pad.GlyphStyle = v;
         };
         Add(glyphs);
+        col.AddChild(Section("Display"));
+        col.AddChild(UiTheme.Label("Drawing at " + DisplayCheck.Describe() + ".", UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
+        if (DisplayCheck.SteamResolutionTip() is { } tip)
+        {
+            col.AddChild(UiTheme.Label(tip, UiTheme.SmallSize + 1, UiTheme.Warn, wrap: true));
+        }
         col.AddChild(Section("Keyboard and mouse"));
         foreach (var line in new[]
         {
@@ -465,6 +471,12 @@ public partial class SettingsScreen : TwoPaneScreen
             Lightcone.App.Ui.Feedback.Play(Lightcone.App.Ui.Cue.Confirm);
         }, "A light buzz in your hands for menu moves, presses and errors. On a Steam Deck it uses the trackpad haptics when Steam Input passes rumble through.",
             "Rumbles on menu actions.", "No rumble in the menus."));
+        Add(Toggle.Create("Projector intro", Host.Settings.ProjectorIntro, on => Host.SaveSettings(Host.Settings with { ProjectorIntro = on }),
+            "While a movie or episode loads, a film reel drops onto a projector and the beam comes on, with a viewing tip. It never delays playback.",
+            "Reel, clicks and a tip while loading.", "Straight to the picture."));
+        Add(Toggle.Create("Did you know?", Host.Settings.Trivia, on => Host.SaveSettings(Host.Settings with { Trivia = on }),
+            "A behind-the-scenes fact on movie and show pages, from Wikipedia. Only the title and year are looked up.",
+            "Facts from Wikipedia on detail pages.", "No trivia box."));
     }
 
     private void BuildAppearance(VBoxContainer col, Action<Control> Add)

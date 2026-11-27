@@ -128,6 +128,7 @@ public partial class LibraryScreen : Screen
         var tileW = PosterTile.SizeFor(shape, Desktop).X;
         var gap = Desktop ? 18 : 24;
         var columns = ColumnsFor(tileW, gap);
+        var fill = FillScale();
         var grid = new GridContainer { Columns = columns };
         grid.AddThemeConstantOverride("h_separation", gap);
         grid.AddThemeConstantOverride("v_separation", gap);
@@ -135,7 +136,7 @@ public partial class LibraryScreen : Screen
         var tiles = new List<Control>();
         foreach (var item in items)
         {
-            var tile = new PosterTile(item, shape, PosterTile.ProgressOf(Host.Library, item), Desktop, MediaActions.Open);
+            var tile = new PosterTile(item, shape, PosterTile.ProgressOf(Host.Library, item), Desktop, MediaActions.Open, fill);
             grid.AddChild(tile);
             tiles.Add(tile);
         }

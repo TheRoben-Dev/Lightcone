@@ -3,6 +3,17 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.10.0
+
+- New Lightcone theme, now the default: a projector beam cuts through a dark auditorium, with dust drifting in the light, the beam slowly changing colour like the film it's showing, and velvet-red curtains at the edges. It stops during playback. Your current theme stays as it is; pick Lightcone in Settings → Appearance.
+- Projector intro: while a movie or episode loads, a film reel drops onto a projector, clicks into place and the beam comes on, with mechanical sounds and matching rumble. A tip for a better movie night (snacks, drinks, lighting, sound) or a bit of cinema history shows underneath. It never holds playback back. Settings → Sound & feel → Projector intro.
+- Did you know?: movie and show pages show a behind-the-scenes fact from the Wikipedia article's production sections, when there is one. Only the title and year are looked up, and each title once. Settings → Sound & feel can turn it off.
+- Smoother menus during playback: the controls and menus now run at the screen's full rate instead of the film's 24 fps. On a VRR screen, the picture follows the film's own rate while you just watch, and any button brings full speed back at once.
+- Downloads: a progress indicator in the header (in the sidebar on the desktop), a message when a download starts, finishes or fails, and a live percentage on the Download button. When the server doesn't allow downloads, it now says so ("Downloads are turned off on this server") instead of just failing.
+- Fits the screen better: grids fill the full width, the last row clears the hint bar, a page's buttons wrap onto a second line instead of running off the screen, and descriptions wrap properly.
+- Smooth scrolling: rows and lists glide along with the selector, keeping the next item in view, and the first and last cards in a row are never cut off at the edge.
+- Steam Deck: if Steam runs Lightcone at a 16:9 resolution (black bars above and below), Lightcone says how to fix it (Properties → Game resolution → Native). Settings → Layout shows the resolution it's drawing at.
+
 ## 0.9.0
 
 - More like this: movie and show pages end with similar titles from your library (your server's picks first, then by genre, era and rating).

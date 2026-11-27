@@ -67,6 +67,9 @@ public partial class Main : Control
 
     public Screen Top => _stack[^1];
 
+    /// <summary>Seconds since the last button, key, click or stick move.</summary>
+    public double IdleSeconds => _idle;
+
     /// <summary>The page on top, or null before the first one.</summary>
     public Screen? TopOrNull => _stack.Count > 0 ? _stack[^1] : null;
 
@@ -115,7 +118,7 @@ public partial class Main : Control
             host.SaveSettings(host.Settings with { DemoLibrary = true });
             host.ApplyDemo(true);
         }
-        var startTheme = host?.Settings.Theme ?? "dark";
+        var startTheme = host?.Settings.Theme ?? "lightcone";
         AppLog.Info($"{Lightcone.Core.Platform.Name}, theme {startTheme}, window {DisplayServer.WindowGetSize()}, driver {RenderingServer.GetCurrentRenderingDriverName()} on {DisplayServer.GetName()}, pads: {Pad.DescribePads()}");
         UiTheme.Use(startTheme, host?.Settings.Accents.GetValueOrDefault(startTheme));
         Anim.Enabled = !(host?.Settings.ReduceMotion ?? false);
@@ -173,6 +176,12 @@ public partial class Main : Control
         }
         UiLayout.Apply(GetWindow(), host?.Settings.Layout, windowed);
         BuildChrome();
+        AppLog.Info("display: " + DisplayCheck.Describe());
+        if (DisplayCheck.SteamResolutionTip() is { } tip)
+        {
+            AppLog.Warn(tip);
+            Callable.From(() => GetTree().CreateTimer(2.0).Timeout += () => Error(tip)).CallDeferred();
+        }
 
         GetViewport().GuiFocusChanged += c => _hints?.SetHelp(c.HasMeta(Stepper.ExpandsMeta) || c.HasMeta(PosterTile.NoHelp) ? "" : c.TooltipText.Split('\n')[0]);
         GetViewport().GuiFocusChanged += _ =>
@@ -203,6 +212,7 @@ public partial class Main : Control
         sync.Timeout += () => Host.Downloads.SyncBack(Host.Library);
         AddChild(sync);
         Host.Library.Changed += () => Callable.From(() => Host.Downloads.SyncBack(Host.Library)).CallDeferred();
+        Host.Downloads.StateChanged += e => Callable.From(() => NoteDownload(e)).CallDeferred();
         _player.SleepFired += () => Callable.From(() => Toast("Sleep timer: playback stopped. Your spot is saved.")).CallDeferred();
 
         if (args.Contains("--open=appearance"))
@@ -806,6 +816,10 @@ public partial class Main : Control
     public override void _Process(double delta)
     {
         CheckIdle(delta);
+        if (_toast.Visible || _stack.Count == 0 || _stack[^1] is not PlayerScreen)
+        {
+            _player.Paced = false;  // anything else on screen runs at the display's rate
+        }
         if (_appFocused)
         {
             TouchScroll.Process(delta);
@@ -1149,6 +1163,26 @@ public partial class Main : Control
     // ---- feedback ----
 
     public void Toast(string text) => _toast.Show(text);
+
+    public bool ToastShowing => _toast.Visible;
+
+    /// <summary>A download started, finished or failed: say so (not while watching something).</summary>
+    private void NoteDownload(Lightcone.Host.Library.DownloadEntry e)
+    {
+        var watching = _stack.Count > 0 && _stack[^1] is PlayerScreen;
+        switch (e.State)
+        {
+            case Lightcone.Host.Library.DownloadState.Downloading when !watching:
+                Toast($"Downloading {e.Item.Title}");
+                break;
+            case Lightcone.Host.Library.DownloadState.Done when !watching:
+                Toast($"Downloaded {e.Item.Title}");
+                break;
+            case Lightcone.Host.Library.DownloadState.Failed:
+                Error($"Download failed: {e.Error}");
+                break;
+        }
+    }
 
     public void Error(string text)
     {

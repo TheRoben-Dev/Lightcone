@@ -34,6 +34,7 @@ public partial class PlayerScreen : Screen
     private double _countdown = -1;
     private bool _askStill;
     private Label _pausedIcon = null!;
+    private ProjectorIntro _intro = null!;
     private Button _skip = null!;
     private Button? _playButton;
     private Control? _audioArt;
@@ -81,6 +82,9 @@ public partial class PlayerScreen : Screen
         _pausedIcon.GrowHorizontal = GrowDirection.Both;
         _pausedIcon.GrowVertical = GrowDirection.Both;
         root.AddChild(_pausedIcon);
+
+        _intro = new ProjectorIntro();
+        root.AddChild(_intro);
 
         _osd = new Control { MouseFilter = MouseFilterEnum.Ignore };
         _osd.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
@@ -533,6 +537,10 @@ public partial class PlayerScreen : Screen
         var show = _osdLeft > 0 || paused || !Svc.HasVideo || _showInfo || (_card.Visible && _askStill);
         var target = show ? 1f : 0f;
         _osd.Modulate = _osd.Modulate with { A = Mathf.MoveToward(_osd.Modulate.A, target, (float)delta * 5f) };
+        // VRR: match the video's rate only while nothing is on screen and nobody is pressing anything;
+        // any input lifts it back to the display's full rate at once.
+        Svc.Paced = !show && _osd.Modulate.A <= 0.001f && Svc.HasVideo && Main.Instance.TopOrNull == this
+            && Main.Instance.IdleSeconds > 1.5 && !Main.Instance.ToastShowing && !_intro.Visible && !_skip.Visible && !_card.Visible && !_preview.Visible;
         _pausedIcon.Visible = paused && Svc.Current != null;
         if (Desktop)
         {

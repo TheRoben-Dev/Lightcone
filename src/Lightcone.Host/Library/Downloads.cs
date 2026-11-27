@@ -50,6 +50,31 @@ public sealed class Downloads
     /// <summary>Raised (on a worker thread) when a download starts, moves, finishes or fails.</summary>
     public event Action? Changed;
 
+    /// <summary>Raised (on a worker thread) when a download starts, finishes or fails, with its new state.</summary>
+    public event Action<DownloadEntry>? StateChanged;
+
+    /// <summary>A clear reason for an HTTP refusal, for the user.</summary>
+    public static string Refusal(System.Net.HttpStatusCode code) => (int)code switch
+    {
+        401 or 403 => "Downloads are turned off on this server (or for your account)",
+        404 => "The server doesn't have this file any more",
+        400 or 500 or 503 => "The server couldn't prepare this download",
+        var c => $"The server refused the download ({c})",
+    };
+
+    /// <summary>Queued and downloading entries, and the overall progress of the one running.</summary>
+    public (int Pending, double? Fraction) Activity
+    {
+        get
+        {
+            lock (_gate)
+            {
+                var pending = _entries.Count(e => e.State is DownloadState.Queued or DownloadState.Downloading);
+                return (pending, _entries.FirstOrDefault(e => e.State == DownloadState.Downloading)?.Fraction);
+            }
+        }
+    }
+
     public Downloads(string indexFile, Func<string> folder, HttpClient? http = null)
     {
         _index = indexFile;
@@ -271,9 +296,11 @@ public sealed class Downloads
                 Update(next.Item.Id, e => e with { State = DownloadState.Downloading });
             }
             Changed?.Invoke();
+            Raise(next.Item.Id);
             try
             {
                 await FetchAsync(next, ct);
+                Raise(next.Item.Id);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -286,6 +313,7 @@ public sealed class Downloads
                 {
                     Update(next.Item.Id, x => x with { State = DownloadState.Failed, Error = e.Message });
                 }
+                Raise(next.Item.Id);
             }
             Changed?.Invoke();
         }
@@ -305,7 +333,10 @@ public sealed class Downloads
             req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
         }
         using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-        res.EnsureSuccessStatusCode();
+        if (!res.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(Refusal(res.StatusCode), null, res.StatusCode);
+        }
         var resumed = have > 0 && res.StatusCode == System.Net.HttpStatusCode.PartialContent;
         if (!resumed)
         {
@@ -343,6 +374,14 @@ public sealed class Downloads
             Update(entry.Item.Id, e => e with { Bytes = have, Total = have, State = DownloadState.Done });
         }
         AppLog.Info($"downloaded {entry.Item.Id} to {file} ({have / 1048576.0:0} MB)");
+    }
+
+    private void Raise(string itemId)
+    {
+        if (Of(itemId) is { } e)
+        {
+            StateChanged?.Invoke(e);
+        }
     }
 
     private void Update(string itemId, Func<DownloadEntry, DownloadEntry> change, bool save = true)

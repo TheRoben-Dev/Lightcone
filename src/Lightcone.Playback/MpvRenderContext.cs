@@ -24,6 +24,16 @@ public sealed unsafe class MpvRenderContext : IDisposable
 
     public bool Software { get; }
 
+    /// <summary>
+    /// True: rendering waits for each frame's display time, so the app presents at the video's own
+    /// cadence (what a VRR screen wants while nobody touches anything). False: never wait, so the
+    /// UI keeps the display's full rate.
+    /// </summary>
+    public bool PaceToVideo { get; set; }
+
+    /// <summary>True while mpv has a frame waiting (peek, doesn't take it).</summary>
+    public bool FramePending => Volatile.Read(ref _dirty) == 1;
+
     private MpvRenderContext(MpvPlayer player, bool software, delegate* unmanaged[Cdecl]<nint, nint, nint> getProcAddress)
     {
         Software = software;
@@ -70,10 +80,14 @@ public sealed unsafe class MpvRenderContext : IDisposable
     {
         var target = new MpvOpenGlFbo { Fbo = fbo, W = w, H = h };
         var flip = flipY ? 1 : 0;
-        var p = stackalloc MpvRenderParam[3];
+        var block = PaceToVideo ? 1 : 0;
+        var p = stackalloc MpvRenderParam[4];
         p[0] = new MpvRenderParam(MpvNative.RenderOpenGlFbo, (nint)(&target));
         p[1] = new MpvRenderParam(MpvNative.RenderFlipY, (nint)(&flip));
-        p[2] = default;
+        // mpv's default is to block until the frame's display time. This runs on the app's render
+        // thread, so blocking paces the whole UI to the video: only wanted while idle (PaceToVideo).
+        p[2] = new MpvRenderParam(MpvNative.RenderBlockForTargetTime, (nint)(&block));
+        p[3] = default;
         MpvNative.Check(MpvNative.mpv_render_context_render(_ctx, p), "render");
     }
 
@@ -91,12 +105,14 @@ public sealed unsafe class MpvRenderContext : IDisposable
         {
             fixed (byte* b = buffer)
             {
-                var p = stackalloc MpvRenderParam[5];
+                var block = PaceToVideo ? 1 : 0;
+                var p = stackalloc MpvRenderParam[6];
                 p[0] = new MpvRenderParam(MpvNative.RenderSwSize, (nint)size);
                 p[1] = new MpvRenderParam(MpvNative.RenderSwFormat, fmt);
                 p[2] = new MpvRenderParam(MpvNative.RenderSwStride, (nint)(&stride));
                 p[3] = new MpvRenderParam(MpvNative.RenderSwPointer, (nint)b);
-                p[4] = default;
+                p[4] = new MpvRenderParam(MpvNative.RenderBlockForTargetTime, (nint)(&block));
+                p[5] = default;
                 MpvNative.Check(MpvNative.mpv_render_context_render(_ctx, p), "render (sw)");
             }
         }

@@ -506,5 +506,29 @@ internal static class Swedish
         // Search
         ["Titles, people, genres, years…"] = "Titlar, personer, genrer, år…",
         ["Type to search every source."] = "Skriv för att söka i alla källor.",
+
+        // 0.10
+        ["Lightcone"] = "Lightcone",
+        ["The default: a projector beam in a dark auditorium, drifting dust and velvet-red accents."] = "Standard: en projektorstråle i en mörk salong, dammkorn i ljuset och sammetsröda detaljer.",
+        ["Calm dark panels with a violet accent."] = "Lugna mörka paneler med lila accent.",
+        ["Did you know?"] = "Visste du?",
+        ["DID YOU KNOW?"] = "VISSTE DU?",
+        ["From {0}"] = "Från {0}",
+        ["Projector intro"] = "Projektorintro",
+        ["While a movie or episode loads, a film reel drops onto a projector and the beam comes on, with a viewing tip. It never delays playback."] =
+            "Medan en film eller ett avsnitt laddas sätts en filmrulle på en projektor och strålen tänds, med ett tips. Det fördröjer aldrig uppspelningen.",
+        ["Reel, clicks and a tip while loading."] = "Filmrulle, klick och ett tips vid laddning.",
+        ["Straight to the picture."] = "Direkt till bilden.",
+        ["A behind-the-scenes fact on movie and show pages, from Wikipedia. Only the title and year are looked up."] =
+            "Ett bakom-kulisserna-faktum på film- och seriesidor, från Wikipedia. Bara titel och år slås upp.",
+        ["Facts from Wikipedia on detail pages."] = "Fakta från Wikipedia på detaljsidor.",
+        ["No trivia box."] = "Ingen faktaruta.",
+        ["Display"] = "Skärm",
+        ["Drawing at {0}."] = "Ritar i {0}.",
+        ["Downloaded {0}"] = "Nedladdad: {0}",
+        ["Download failed: {0}"] = "Nedladdningen misslyckades: {t}",
+        ["Downloads are turned off on this server (or for your account)"] = "Nedladdning är avstängt på den här servern (eller för ditt konto)",
+        ["The server doesn't have this file any more"] = "Servern har inte filen längre",
+        ["The server couldn't prepare this download"] = "Servern kunde inte förbereda nedladdningen",
     };
 }

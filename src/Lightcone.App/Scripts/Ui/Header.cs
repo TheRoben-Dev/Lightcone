@@ -46,6 +46,7 @@ public partial class Header : HBoxContainer
             }
         };
         AddChild(_game);
+        AddChild(new DownloadIndicator());
         AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill });
         _tabRow.AddThemeConstantOverride("separation", 24);
         _tabRow.AddChild(_prev);

@@ -63,7 +63,8 @@ public abstract partial class Screen : MarginContainer
     private (float Tile, float Gap, float Reserve, int Columns) _builtGrid;
 
     private bool WidthChanged() =>
-        UsesWidth && Modulate.A > 0.99f && Columns(AvailableWidth(), _builtGrid.Tile, _builtGrid.Gap, _builtGrid.Reserve) != _builtGrid.Columns;
+        UsesWidth && Modulate.A > 0.99f && (Columns(AvailableWidth(), _builtGrid.Tile, _builtGrid.Gap, _builtGrid.Reserve) != _builtGrid.Columns
+            || Math.Abs(AvailableWidth() - _builtWidth) > 32);
 
     private static int Columns(float width, float tileW, float gap, float reserve) =>
         Math.Max(1, (int)((width - reserve - 16 + gap) / (tileW + gap)));
@@ -98,6 +99,21 @@ public abstract partial class Screen : MarginContainer
         var columns = Columns(_builtWidth, tileW, gap, reserve);
         _builtGrid = (tileW, gap, reserve, columns);
         return columns;
+    }
+
+    /// <summary>
+    /// After <see cref="ColumnsFor"/>: how much to grow the tiles so the columns span the whole
+    /// width instead of leaving a strip on the right (at most a quarter bigger).
+    /// </summary>
+    protected float FillScale()
+    {
+        var (tileW, gap, reserve, columns) = _builtGrid;
+        if (tileW <= 0 || columns <= 0)
+        {
+            return 1;
+        }
+        var fit = (_builtWidth - reserve - 16 + gap) / columns - gap;
+        return Math.Clamp(fit / tileW, 1f, 1.25f);
     }
 
     /// <summary>Clears and rebuilds the page (after data changes), keeping focus near where it was.</summary>
@@ -303,7 +319,7 @@ public abstract partial class Screen : MarginContainer
         gutter.AddThemeConstantOverride("margin_right", 6);
         gutter.AddThemeConstantOverride("margin_left", 4);
         gutter.AddThemeConstantOverride("margin_top", 4);
-        gutter.AddThemeConstantOverride("margin_bottom", 4);
+        gutter.AddThemeConstantOverride("margin_bottom", 24);  // the last row clears the hint bar
         gutter.AddChild(content);
         s.AddChild(gutter);
         s.AddChild(new ScrollFollower());

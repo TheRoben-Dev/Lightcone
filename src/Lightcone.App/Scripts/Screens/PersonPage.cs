@@ -67,7 +67,7 @@ public partial class PersonPage : Screen
         var tiles = new List<Control>();
         foreach (var t in _titles)
         {
-            var tile = new PosterTile(t, TileShape.Poster, PosterTile.ProgressOf(lib, t), Desktop, MediaActions.Open);
+            var tile = new PosterTile(t, TileShape.Poster, PosterTile.ProgressOf(lib, t), Desktop, MediaActions.Open, FillScale());
             grid.AddChild(tile);
             tiles.Add(tile);
         }

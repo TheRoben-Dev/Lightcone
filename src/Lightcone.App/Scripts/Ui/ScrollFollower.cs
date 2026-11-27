@@ -11,8 +11,32 @@ namespace Lightcone.App.Ui;
 /// </summary>
 public partial class ScrollFollower : Node
 {
-    private const float Margin = 28;
     private ScrollContainer _s = null!;
+
+    /// <summary>Follows along x (a row of tiles) instead of y (a page).</summary>
+    public bool Horizontal { get; init; }
+
+    /// <summary>
+    /// How much room to keep past the focused control, as a share of the view: the list starts
+    /// moving before the selector reaches the edge, so it travels with it instead of jumping.
+    /// </summary>
+    public float Lead { get; init; } = 0.18f;
+
+    private int Scroll
+    {
+        get => Horizontal ? _s.ScrollHorizontal : _s.ScrollVertical;
+        set
+        {
+            if (Horizontal)
+            {
+                _s.ScrollHorizontal = value;
+            }
+            else
+            {
+                _s.ScrollVertical = value;
+            }
+        }
+    }
     private bool _active = true;
     private float _pos;
     private int _lastSet = -1;
@@ -38,7 +62,7 @@ public partial class ScrollFollower : Node
     {
         _s = GetParent<ScrollContainer>();
         _s.FollowFocus = false;
-        _pos = _s.ScrollVertical;
+        _pos = Scroll;
     }
 
     // Enter/exit pair (not _Ready): the content area is re-parented when the layout changes.
@@ -58,8 +82,8 @@ public partial class ScrollFollower : Node
         {
             TouchScroll.StopMomentum();
             _active = true;
-            _pos = _s.ScrollVertical;
-            _lastSet = _s.ScrollVertical;
+            _pos = Scroll;
+            _lastSet = Scroll;
         }
     }
 
@@ -68,8 +92,8 @@ public partial class ScrollFollower : Node
         _frames++;
         if (_restore is { } r)
         {
-            _s.ScrollVertical = r;
-            _pos = _lastSet = _s.ScrollVertical;
+            Scroll = r;
+            _pos = _lastSet = Scroll;
             if (_frames > 3)
             {
                 _restore = null;
@@ -80,7 +104,7 @@ public partial class ScrollFollower : Node
         {
             return;
         }
-        if (_lastSet >= 0 && _s.ScrollVertical != _lastSet)
+        if (_lastSet >= 0 && Scroll != _lastSet)
         {
             _active = false;  // someone else scrolled (touch, wheel): leave it there
             return;
@@ -90,25 +114,32 @@ public partial class ScrollFollower : Node
         {
             return;
         }
-        var top = focus.GetGlobalRect().Position.Y - content.GetGlobalRect().Position.Y;
-        var bottom = top + focus.Size.Y;
-        var view = _s.Size.Y;
-        var target = _pos;
-        if (bottom - top + 2 * Margin > view || top - Margin < _pos)
+        // The tile that holds focus (a tile's inner button can be the focus owner).
+        var rect = focus.GetGlobalRect();
+        var top = Horizontal ? rect.Position.X - content.GetGlobalRect().Position.X : rect.Position.Y - content.GetGlobalRect().Position.Y;
+        var bottom = top + (Horizontal ? rect.Size.X : rect.Size.Y);
+        var view = Horizontal ? _s.Size.X : _s.Size.Y;
+        var margin = Math.Clamp(view * Lead, 28f, 220f);
+        if (bottom - top + 2 * margin > view)
         {
-            target = top - Margin;
+            margin = Math.Max(12f, (view - (bottom - top)) / 2);
         }
-        else if (bottom + Margin > _pos + view)
+        var target = _pos;
+        if (bottom - top + 2 * margin > view || top - margin < _pos)
         {
-            target = bottom + Margin - view;
+            target = top - margin;
+        }
+        else if (bottom + margin > _pos + view)
+        {
+            target = bottom + margin - view;
         }
         // Near the top of the page (the hero, a detail page's buttons), go all the way up so the
         // header art and titles above the focused control show again.
-        if (target < view * 0.4f && bottom + Margin <= view)
+        if (!Horizontal && target < view * 0.4f && bottom + margin <= view)
         {
             target = 0;
         }
-        var max = Math.Max(0, content.Size.Y - view);
+        var max = Math.Max(0, (Horizontal ? content.Size.X : content.Size.Y) - view);
         target = Math.Clamp(target, 0, max);
         if (Math.Abs(target - _pos) < 0.5f)
         {
@@ -120,11 +151,12 @@ public partial class ScrollFollower : Node
         }
         else
         {
-            // Exponential approach (~140 ms to settle), at least one pixel per frame so it never stalls.
-            var next = Mathf.Lerp(_pos, target, 1 - (float)Math.Exp(-delta * 22));
+            // Exponential ease-out (~200 ms to settle, in step with the focus ring's glide), at
+            // least one pixel per frame so it never stalls.
+            var next = Mathf.Lerp(_pos, target, 1 - (float)Math.Exp(-delta * 16));
             _pos = Math.Abs(next - _pos) < 1 ? Mathf.MoveToward(_pos, target, 1) : next;
         }
-        _s.ScrollVertical = (int)Math.Round(_pos);
-        _lastSet = _s.ScrollVertical;
+        Scroll = (int)Math.Round(_pos);
+        _lastSet = Scroll;
     }
 }

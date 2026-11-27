@@ -39,7 +39,12 @@ public partial class VideoView : Control
         {
             _rect.Texture = tex;
         }
-        _rect.QueueRedraw();
+        // Paced (idle playback): draw only when a frame is due, so the screen follows the video's
+        // rate. Otherwise every frame, so menus and controls stay at the display's rate.
+        if (!svc.Paced || svc.FramePending)
+        {
+            _rect.QueueRedraw();
+        }
     }
 
     /// <summary>Frees the shared shader while .NET still runs (Main._ExitTree).</summary>

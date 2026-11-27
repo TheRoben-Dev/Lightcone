@@ -104,7 +104,7 @@ public partial class SmokeTest : Node
         // the sample streams play in real time, and resume starts after 30 s).
         Step("player-back", () => Tap(JoyButton.B), wait: 1.2, expect: "Play", tab: "Movies");
         // Cast & crew below the actions; a person opens their other titles in the library.
-        Step("movie-cast", () => Tap(JoyButton.DpadDown), wait: 0.8, tab: "Movies");
+        Step("movie-cast", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, tab: "Movies");
         Step("movie-person", () => Tap(JoyButton.A), wait: 1.2, tab: "Movies");
         Step("movie-person-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
         Step("movie-extras", () => Tap(JoyButton.DpadDown), wait: 0.8, expect: "Official trailer", tab: "Movies");
@@ -350,6 +350,26 @@ public partial class SmokeTest : Node
         Step("desktop-stop", () => PlayerService.Instance.Stop(), wait: 1.0);
         Step("controller-layout", () => Main.Instance.ApplyLayout("auto"), wait: 1.5, tab: "Settings");
         AddRelease09Steps();
+        AddRelease10Steps();
+    }
+
+    /// <summary>0.10.0: the projector intro (held on screen for the shot) and the Lightcone theme.</summary>
+    private void AddRelease10Steps()
+    {
+        Step("v10-intro", () =>
+        {
+            ProjectorIntro.Hold = true;
+            var host = Main.Instance.Host!;
+            var item = host.Library.Section(Lightcone.Host.Library.MediaKind.Movie).First(m => m.Title == "Projector Dreams");
+            PlayerService.Instance.Play(item, fromStart: true);
+            Main.Instance.ShowPlayer();
+        }, wait: 1.8);
+        Step("v10-intro-done", () => ProjectorIntro.Hold = false, wait: 1.0);
+        Step("v10-intro-stop", () =>
+        {
+            PlayerService.Instance.Stop();
+            Main.Instance.SwitchTab("Movies");
+        }, wait: 1.5, tab: "Movies");
     }
 
     /// <summary>0.9.0: More like this, Play on…, subtitle search, Arrange Home, phone remote, ambient mode, Swedish.</summary>

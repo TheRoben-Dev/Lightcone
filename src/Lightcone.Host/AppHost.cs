@@ -10,7 +10,7 @@ namespace Lightcone.Host;
 public sealed record AppSettings
 {
     /// <summary>UI theme id (see the app's theme list); unknown ids fall back to the default.</summary>
-    public string Theme { get; init; } = "dark";
+    public string Theme { get; init; } = "lightcone";
 
     /// <summary>Accent colour per theme id (a swatch id from the app's list); missing = the theme's own.</summary>
     public Dictionary<string, string> Accents { get; init; } = new();
@@ -38,6 +38,12 @@ public sealed record AppSettings
 
     /// <summary>A light rumble on the pad for menu moves, presses and errors.</summary>
     public bool Haptics { get; init; } = true;
+
+    /// <summary>The film-reel-into-projector animation (with its sounds) while a movie or episode loads.</summary>
+    public bool ProjectorIntro { get; init; } = true;
+
+    /// <summary>A behind-the-scenes fact on movie and show pages, looked up on Wikipedia (sends the title).</summary>
+    public bool Trivia { get; init; } = true;
 
     /// <summary>Music in Lightcone (its tab, Home rows and search). Movies and TV are the main thing; this can go.</summary>
     public bool MusicTab { get; init; } = true;
@@ -165,6 +171,9 @@ public sealed class AppHost
     /// <summary>Offline downloads (downloads.json; files in Settings.DownloadFolder or the data folder).</summary>
     public Downloads Downloads { get; }
 
+    /// <summary>"Did you know?" facts for detail pages (Wikipedia, cached in trivia.json).</summary>
+    public Trivia Trivia { get; }
+
     /// <summary>The Plex account and its servers (sources in <see cref="Library"/>).</summary>
     public Plex.PlexService Plex { get; }
 
@@ -194,6 +203,7 @@ public sealed class AppHost
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
         Jellyfin = new Jellyfin.JellyfinService(Library, Paths.Config, Paths.Data, http);
         Downloads = new Downloads(Path.Combine(Paths.Data, "downloads.json"), () => Settings.DownloadFolder ?? Path.Combine(Paths.Data, "downloads"));
+        Trivia = new Trivia(Path.Combine(Paths.Data, "trivia.json"));
     }
 
     /// <summary>Adds or removes the sample library.</summary>
