@@ -90,6 +90,7 @@ public partial class ProjectorIntro : Control
         _mat.SetShaderParameter("g0", toScreen[0]);
         _mat.SetShaderParameter("g1", toScreen[1]);
         _mat.SetShaderParameter("g2", toScreen[2]);
+        _mat.SetShaderParameter("screen_x", ScreenCorners[0].X);
     }
 
     /// <summary>Turned on in Settings (on by default).</summary>
@@ -163,9 +164,10 @@ public partial class ProjectorIntro : Control
         }
         lamp *= 0.985f + 0.015f * MathF.Sin(t * 9.1f) * MathF.Sin(t * 5.3f);
         var spread = 1 - MathF.Pow(1 - open, 3);
-        var show = since < 0 ? 0f : Math.Clamp(since / 0.35f, 0, 1);
-        var push = since < 0 ? 0f : EaseInOut(Math.Clamp((since - PushDelay) / PushTime, 0, 1));
-        SetCamera(push);
+        var show = since < 0 ? 0f : Math.Clamp(since / 0.6f, 0, 1);
+        var move = since < 0 ? 0f : Math.Clamp((since - PushDelay) / PushTime, 0, 1);
+        var push = CameraEase(move);
+        SetCamera(push, move, t);
         _mat.SetShaderParameter("t", t);
         _mat.SetShaderParameter("lamp", lamp);
         _mat.SetShaderParameter("spread", spread);
@@ -186,13 +188,18 @@ public partial class ProjectorIntro : Control
         }
     }
 
-    private const float PushDelay = 0.3f;
-    private const float PushTime = 1.6f;
+    private const float PushDelay = 0.25f;
+    private const float PushTime = 2.6f;
     private float _readyAt = -1;
 
-    // The screen's corners in the resting scene (UV space, y down): off to the right, turned
-    // towards the projector, so its near (right) edge is taller.
-    private static readonly Vector2[] ScreenCorners = [new(0.80f, 0.31f), new(0.985f, 0.18f), new(0.985f, 0.82f), new(0.80f, 0.67f)];
+    // The screen's corners in the resting scene (UV space, y down): just past the right edge of
+    // the frame, so only the beam heading for it is seen until the camera turns; turned towards
+    // the projector, so its near (right) edge is taller.
+    private static readonly Vector2[] ScreenCorners = [new(1.05f, 0.31f), new(1.25f, 0.18f), new(1.25f, 0.82f), new(1.05f, 0.67f)];
+    // Where the camera aims on its way: the screen framed but still far and turned. Not a stop,
+    // a control point the corners curve towards, so the move arcs (turn first, then push in)
+    // instead of sliding in a straight line.
+    private static readonly Vector2[] Via = [new(0.44f, 0.31f), new(0.80f, 0.21f), new(0.80f, 0.79f), new(0.44f, 0.69f)];
     private static readonly Vector2[] Frame = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
 
     private void Finish()
@@ -203,16 +210,22 @@ public partial class ProjectorIntro : Control
     }
 
     /// <summary>
-    /// The camera move: the screen's corners glide from where they rest to the corners of the
-    /// frame, and the room follows the same perspective mapping, so it reads as a push in and turn
-    /// towards the screen.
+    /// The camera move: the screen's corners travel on curves (through <see cref="Via"/>) from
+    /// where they rest to the corners of the frame, and the room follows the same perspective
+    /// mapping, so it reads as the camera turning to find the screen and then pushing in. A slow
+    /// handheld drift fades out as it goes, and it runs a touch past the frame before settling
+    /// back, so it lands like a camera operator rather than a slide.
     /// </summary>
-    private void SetCamera(float push)
+    private void SetCamera(float push, float move, float t)
     {
+        var a = 1 - push;
+        var drift = new Vector2(MathF.Sin(t * 0.61f) + 0.4f * MathF.Sin(t * 1.37f + 2f), 0.6f * MathF.Sin(t * 0.47f + 1f)) * 0.006f * a;
+        var settle = move <= 0.62f ? 0f : 0.022f * Sq(MathF.Sin(MathF.PI * (move - 0.62f) / 0.38f));
         var now = new Vector2[4];
         for (var i = 0; i < 4; i++)
         {
-            now[i] = ScreenCorners[i].Lerp(Frame[i], push);
+            var c = ScreenCorners[i] * (a * a) + Via[i] * (2 * a * push) + Frame[i] * (push * push);
+            now[i] = (c - Centre) * (1 + settle) + Centre + drift;
         }
         var back = Homography.Solve(now, ScreenCorners);   // output → resting scene
         _mat.SetShaderParameter("h0", back[0]);
@@ -220,5 +233,17 @@ public partial class ProjectorIntro : Control
         _mat.SetShaderParameter("h2", back[2]);
     }
 
-    private static float EaseInOut(float x) => x < 0.5f ? 4 * x * x * x : 1 - MathF.Pow(-2 * x + 2, 3) / 2;
+    private static readonly Vector2 Centre = new(0.5f, 0.5f);
+
+    private static float Sq(float x) => x * x;
+
+    /// <summary>
+    /// A long ease in and out with a gentle start and a longer, softer landing: smootherstep on a
+    /// slightly warped clock, so it builds speed slowly and spends more time slowing down.
+    /// </summary>
+    private static float CameraEase(float x)
+    {
+        x = MathF.Pow(Math.Clamp(x, 0, 1), 0.8f);
+        return x * x * x * (x * (x * 6 - 15) + 10);
+    }
 }
