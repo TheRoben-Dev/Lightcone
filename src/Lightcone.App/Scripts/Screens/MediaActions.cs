@@ -24,11 +24,17 @@ public static class MediaActions
 
     public static void Resume(MediaItem item) => Play(item);
 
-    public static void Play(MediaItem item, bool fromStart = false)
+    /// <summary>Plays an item; an episode after a break may show the "Previously" recap first (<paramref name="recap"/>).</summary>
+    public static void Play(MediaItem item, bool fromStart = false, bool recap = true)
     {
         if (!PlayerService.EngineAvailable(out var why))
         {
             Main.Instance.Error("Can't play: the playback engine (libmpv) isn't available. " + why);
+            return;
+        }
+        if (recap && RecapPage.RecapFor(item, fromStart) is { } previous)
+        {
+            Main.Instance.Push(new RecapPage(item, previous));
             return;
         }
         PlayerService.Instance.Play(item, fromStart);
@@ -42,6 +48,18 @@ public static class MediaActions
         var children = lib.Children(container.Id).Where(c => c.Playable).ToList();
         if (children.Count == 0)
         {
+            return;
+        }
+        if (shuffle && container.Kind == MediaKind.Show)
+        {
+            if (!PlayerService.EngineAvailable(out var why))
+            {
+                Main.Instance.Error("Can't play: the playback engine (libmpv) isn't available. " + why);
+                return;
+            }
+            PlayerService.Instance.Shuffle(container);
+            Main.Instance.ShowPlayer();
+            Main.Instance.Toast($"Shuffling {container.Title}");
             return;
         }
         var next = shuffle ? children[Random.Shared.Next(children.Count)] : lib.NextToPlay(container) ?? children[0];

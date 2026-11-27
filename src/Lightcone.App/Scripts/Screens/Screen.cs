@@ -137,7 +137,8 @@ public abstract partial class Screen : MarginContainer
                 f.Restore(scrolls[i]);
             }
         }
-        if (IsVisibleInTree())
+        // (A page under an open card, rebuilt by a pick on that card, leaves the card its focus.)
+        if (IsVisibleInTree() && !(Main.Instance?.TopOrNull is { IsOverlay: true } top && top != this))
         {
             if (!RefocusIndex(focusedIndex))
             {

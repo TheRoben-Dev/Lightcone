@@ -8,9 +8,11 @@ namespace Lightcone.App.Screens;
 
 /// <summary>
 /// The full-screen player, shared by both modes. Controller: A pause, B stop, triggers and
-/// left/right seek, X (or Menu) audio and subtitles, Y skip intro/credits or info. Desktop: a
-/// mouse control bar (play, seek bar, tracks, mini player, full screen) and Space / arrows / F.
-/// Touch: tap shows the controls, the seek bar drags.
+/// left/right seek, X (or Menu) options (audio, subtitles, speed, delays, sleep timer), Y skip
+/// intro/credits or info. Desktop: a mouse control bar (play, seek bar, options, mini player,
+/// full screen) and Space / arrows / F. Touch: tap shows the controls, the seek bar drags.
+/// Near an episode's end an Up next card counts down to the next one (A plays it now, B lets the
+/// credits run); after a few episodes in a row with no press it asks "Still watching?" instead.
 /// </summary>
 public partial class PlayerScreen : Screen
 {
@@ -22,6 +24,11 @@ public partial class PlayerScreen : Screen
     private Label _subtitle = null!;
     private Label _time = null!;
     private Label _info = null!;
+    private Label _status = null!;
+    private UpNextCard _card = null!;
+    private string? _cardDismissedFor;
+    private double _countdown = -1;
+    private bool _askStill;
     private Label _pausedIcon = null!;
     private Button _skip = null!;
     private Button? _playButton;
@@ -100,6 +107,9 @@ public partial class PlayerScreen : Screen
         bottomBox.AddChild(timeRow);
         _time = UiTheme.Label("", UiTheme.SmallSize + 2, Colors.White);
         timeRow.AddChild(_time);
+        _status = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.75f));
+        _status.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+        timeRow.AddChild(_status);
         timeRow.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
         _skip = new Button { Text = "Skip intro", Visible = false, FocusMode = FocusModeEnum.None, TooltipText = "Skip" };
         _skip.Pressed += Svc.SkipMarker;
@@ -121,9 +131,17 @@ public partial class PlayerScreen : Screen
         else
         {
             var hints = UiTheme.Label("", UiTheme.SmallSize + 1, new Color(1, 1, 1, 0.8f));
-            hints.Text = $"{Pad.Glyph(Pad.Accept)} Pause    {Pad.Glyph(Pad.SeekBack)} / {Pad.Glyph(Pad.SeekForward)} Seek    {Pad.Glyph(Pad.Tertiary)} Audio & subtitles    {Pad.Glyph(Pad.Secondary)} Skip / info    {Pad.Glyph(Pad.Back)} {(Svc.HasVideo ? "Stop" : "Back (keeps playing)")}";
+            hints.Text = $"{Pad.Glyph(Pad.Accept)} Pause    {Pad.Glyph(Pad.SeekBack)} / {Pad.Glyph(Pad.SeekForward)} Seek    {Pad.Glyph(Pad.Tertiary)} Options    {Pad.Glyph(Pad.Secondary)} Skip / info    {Pad.Glyph(Pad.Back)} {(Svc.HasVideo ? "Stop" : "Back (keeps playing)")}";
             bottomBox.AddChild(hints);
         }
+        _card = new UpNextCard(Desktop, PlayNextNow, DismissCard);
+        _card.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);
+        _card.GrowHorizontal = GrowDirection.Begin;
+        _card.GrowVertical = GrowDirection.Begin;
+        _card.OffsetRight = -40;
+        _card.OffsetBottom = Desktop ? -150 : -130;
+        _card.Visible = false;
+        root.AddChild(_card);
         Svc.Changed += OnChanged;
         Svc.Finished += OnFinished;
         TreeExiting += () =>
@@ -153,7 +171,7 @@ public partial class PlayerScreen : Screen
         _playButton = B("❚❚", "Play / pause (Space)", Svc.TogglePause);
         B($"{Host.Settings.SeekForward} ⟳", $"Forward {Host.Settings.SeekForward} seconds (Right, hold to go faster)", () => Svc.Step(1));
         row.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
-        B("Audio & subtitles", "Audio and subtitle tracks (A)", () => App.Push(new TrackPickerPage()));
+        B("Options", "Audio, subtitles, speed, subtitle timing and sleep timer (A)", () => App.Push(new TrackPickerPage()));
         B("Mini player", "Keep playing in the mini player while you browse", App.MinimizePlayer);
         B("Full screen", "Full screen (F)", ToggleFullscreen);
         B("✕", "Stop (Esc)", () =>
@@ -221,21 +239,144 @@ public partial class PlayerScreen : Screen
 
     private void OnFinished(MediaItem done)
     {
-        // Episodes and tracks continue with the next one; anything else closes the player.
-        var next = done.ParentId == null ? null :
-            Host.Library.Children(done.ParentId).SkipWhile(c => c.Id != done.Id).Skip(1).FirstOrDefault(c => c.Playable);
-        if (next != null)
+        // The sleep timer set to "end of this episode" stops here.
+        if (Svc.SleepEndsHere())
         {
-            AppLog.Info($"up next: {next.Id}");
-            Svc.Play(next, fromStart: true);
+            CloseAfterEnd();
+            return;
+        }
+        var next = Svc.UpNextFor(done);
+        if (next != null && done.Kind == MediaKind.Track)
+        {
+            Svc.PlayNext(auto: false);  // albums play through
+            return;
+        }
+        if (next != null && done.Kind == MediaKind.Episode && Host.Settings.UpNextSeconds > 0)
+        {
+            if (_askStill || Svc.ShouldAskStillWatching)
+            {
+                // Stay on the last frame with the question up; nothing plays until someone answers.
+                _askStill = true;
+                ShowCard(next);
+                return;
+            }
+            Svc.PlayNext(auto: true);
             App.Toast("Up next: " + next.Title);
             return;
         }
+        CloseAfterEnd();
+    }
+
+    private void CloseAfterEnd()
+    {
         Svc.Stop();
         if (App.Top == this)
         {
             App.Pop();
         }
+    }
+
+    // ---- Up next ----
+
+    /// <summary>
+    /// Where the Up next card appears: at the start of the final credits when the server marks
+    /// them (a credits marker that runs to the end; one followed by more of the episode is just a
+    /// Skip credits button), else 20 seconds before the end. Null when there's nothing next.
+    /// </summary>
+    private double? CardStart(MediaItem cur, double duration)
+    {
+        var final = Host.Library.MarkersOf(cur).Where(m => m.Kind == Marker.Credits && m.End >= duration - 30).OrderBy(m => m.Start).FirstOrDefault();
+        return final?.Start ?? duration - 20;
+    }
+
+    private void UpdateCard(double delta)
+    {
+        var cur = Svc.Current;
+        MediaItem? next = null;
+        var show = false;
+        if (cur is { Kind: MediaKind.Episode } && Svc.Duration is { } d and > 60 && !Svc.SleepAtEnd && Host.Settings.UpNextSeconds > 0
+            && (next = Svc.UpNextFor(cur)) != null)
+        {
+            show = _forceCard || _askStill || (_cardDismissedFor != cur.Id && Svc.Position >= CardStart(cur, d) && Svc.Position < d - 0.5);
+        }
+        if (!show || next == null)
+        {
+            if (_card.Visible)
+            {
+                _card.Visible = false;
+                _countdown = -1;
+            }
+            return;
+        }
+        if (!_card.Visible || _card.Item?.Id != next.Id)
+        {
+            _askStill = _askStill || Svc.ShouldAskStillWatching;
+            ShowCard(next);
+        }
+        if (_askStill)
+        {
+            _card.SetStatus("Are you still watching?", null);
+            return;
+        }
+        if (!Svc.Paused)
+        {
+            _countdown -= delta;
+        }
+        var total = Host.Settings.UpNextSeconds;
+        if (_countdown <= 0)
+        {
+            PlayNextNow(auto: true);
+            return;
+        }
+        _card.SetStatus(Svc.Paused ? "Paused" : $"Plays in {Math.Ceiling(_countdown):0} s", 1 - _countdown / total);
+    }
+
+    private void ShowCard(MediaItem next)
+    {
+        _countdown = Host.Settings.UpNextSeconds;
+        _card.Fill(next, _askStill);
+        _card.Visible = true;
+        AppLog.Info($"up next card: {next.Id}{(_askStill ? " (still watching?)" : "")}");
+    }
+
+    private void PlayNextNow() => PlayNextNow(auto: false);
+
+    private bool _forceCard;
+
+    /// <summary>Smoke test: shows the card now (the sample streams can't seek to their credits).</summary>
+    internal void ForceUpNext(bool askStill)
+    {
+        _forceCard = true;
+        _askStill = askStill;
+        _card.Visible = false;
+    }
+
+    private void PlayNextNow(bool auto)
+    {
+        _forceCard = false;
+        _card.Visible = false;
+        _countdown = -1;
+        _askStill = false;
+        if (Svc.PlayNext(auto) is { } next && auto)
+        {
+            App.Toast("Up next: " + next.Title);
+        }
+    }
+
+    /// <summary>B or Watch credits on the card: let this one run out. "Still watching?" + B stops.</summary>
+    private void DismissCard()
+    {
+        _forceCard = false;
+        if (_askStill)
+        {
+            _askStill = false;
+            _card.Visible = false;
+            CloseAfterEnd();
+            return;
+        }
+        _cardDismissedFor = Svc.Current?.Id;
+        _card.Visible = false;
+        _countdown = -1;
     }
 
     /// <summary>Shows the controls for a few seconds.</summary>
@@ -248,7 +389,7 @@ public partial class PlayerScreen : Screen
         {
             _osdLeft -= delta;
         }
-        var show = _osdLeft > 0 || paused || !Svc.HasVideo || _showInfo;
+        var show = _osdLeft > 0 || paused || !Svc.HasVideo || _showInfo || (_card.Visible && _askStill);
         var target = show ? 1f : 0f;
         _osd.Modulate = _osd.Modulate with { A = Mathf.MoveToward(_osd.Modulate.A, target, (float)delta * 5f) };
         _pausedIcon.Visible = paused && Svc.Current != null;
@@ -262,8 +403,19 @@ public partial class PlayerScreen : Screen
         var clock = d is > 0 ? _bar.Shown * d.Value : pos;  // the clock rides along with the bar's glide
         _time.Text = d is { } dd ? $"{MediaItem.FormatDuration(clock, true)} / {MediaItem.FormatDuration(dd, true)}" : MediaItem.FormatDuration(pos, true);
         _bar.Markers = Svc.Current is { } cur && d is > 0 ? Host.Library.MarkersOf(cur).Select(m => ((float)(m.Start / d.Value), (float)(m.End / d.Value))).ToList() : [];
+        UpdateCard(delta);
         var marker = Svc.ActiveMarker;
-        _skip.Visible = marker != null;
+        _skip.Visible = marker != null && !(_card.Visible && Svc.NextInsteadOfCredits != null);
+        var status = new List<string>();
+        if (Math.Abs(Svc.Speed - 1) > 0.001)
+        {
+            status.Add($"{Svc.Speed:0.##}×");
+        }
+        if (Svc.SleepText is { } sleep)
+        {
+            status.Add(sleep);
+        }
+        _status.Text = status.Count > 0 ? "    " + string.Join("  ·  ", status) : "";
         if (marker != null)
         {
             var label = Svc.SkipLabel ?? marker.Label;
@@ -287,7 +439,12 @@ public partial class PlayerScreen : Screen
         {
             return;
         }
-        if (e.IsAction(Pad.Accept) && !e.IsEcho())
+        Svc.NoteInput();
+        if (_card.Visible && e.IsAction(Pad.Accept) && !e.IsEcho())
+        {
+            PlayNextNow();
+        }
+        else if (e.IsAction(Pad.Accept) && !e.IsEcho())
         {
             Svc.TogglePause();
         }
@@ -337,6 +494,8 @@ public partial class PlayerScreen : Screen
             case InputEventMouseMotion:
                 Poke();
                 break;
+            case InputEventMouseButton { Pressed: true } when _card.Visible && _askStill:
+                break;  // answer the question with its buttons
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true, DoubleClick: true } when Desktop:
                 ToggleFullscreen();
                 break;
@@ -354,6 +513,12 @@ public partial class PlayerScreen : Screen
     /// <summary>B: video stops (position saved); music keeps playing in the background.</summary>
     public override bool OnBack()
     {
+        Svc.NoteInput();
+        if (_card.Visible)
+        {
+            DismissCard();
+            return true;
+        }
         if (Svc.HasVideo)
         {
             Svc.Stop();

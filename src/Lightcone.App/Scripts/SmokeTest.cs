@@ -35,9 +35,25 @@ public partial class SmokeTest : Node
         Step("home-up-top", () => Tap(JoyButton.DpadUp, 3), wait: 0.9, expect: "Play", tab: "Home");
         // Bumpers switch sections.
         Step("movies", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Movies");
-        // Y cycles the sort.
-        Step("movies-sort", () => Tap(JoyButton.Y), wait: 1.0, tab: "Movies");
-        Step("movies-sort-title", () => Tap(JoyButton.Y), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
+        // Y: sort and filter on a card. Unwatched, back to everything, then sort by title.
+        Step("movies-sort", () => Tap(JoyButton.Y), wait: 1.0, expect: "Sort: Title", tab: "Movies");
+        Step("movies-filter-unwatched", () =>
+        {
+            Tap(JoyButton.DpadRight);
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "Show: Unwatched", tab: "Movies");
+        Step("movies-filter-all", () =>
+        {
+            Tap(JoyButton.DpadUp);
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "Show: Everything", tab: "Movies");
+        Step("movies-sort-pick", () =>
+        {
+            Tap(JoyButton.DpadLeft);
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "Sort: Title", tab: "Movies");
+        Step("movies-sort-title", () => Tap(JoyButton.B), wait: 1.0, expect: "A Field of Lanterns", tab: "Movies");
         Step("movie-detail", () => Tap(JoyButton.A), wait: 1.2, expect: "Play", tab: "Movies");
         // X: on the watchlist (Home gets a Watchlist row). Collections…: start one with this film.
         Step("movie-watchlist", () => Tap(JoyButton.X), wait: 1.0, expect: "Play", tab: "Movies");
@@ -61,6 +77,17 @@ public partial class SmokeTest : Node
         Step("player-pause", () => Tap(JoyButton.A), wait: 1.0);
         Step("player-info", () => Tap(JoyButton.Y), wait: 1.0);
         Step("player-tracks", () => Tap(JoyButton.Start), wait: 1.0);
+        // Options: speed (remembered for this movie) and the sleep timer.
+        Step("player-options-speed", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Playback speed");
+        Step("player-options-sleep", () =>
+        {
+            Tap(JoyButton.DpadDown, 3);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "Pauses playback");
         Step("player-tracks-back", () => Tap(JoyButton.B), wait: 1.0);
         // B stops video and goes back (position saving and Resume are covered by the unit tests:
         // the sample streams play in real time, and resume starts after 30 s).
@@ -89,6 +116,26 @@ public partial class SmokeTest : Node
         Step("show-season-trigger", () => Trigger(JoyAxis.TriggerRight), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
         // Y marks the whole season watched.
         Step("show-season-watched", () => Tap(JoyButton.Y), wait: 1.0, tab: "Shows");
+        // "Previously": the recap card before an episode after a break.
+        Step("show-recap", () =>
+        {
+            var lib = Main.Instance.Host!.Library;
+            var show = lib.Section(Lightcone.Host.Library.MediaKind.Show).First(s => s.Title == "Deep Field");
+            var eps = lib.Children(show.Id).Where(e => e.Season == 1).ToList();
+            lib.SetWatched(eps[0], true);
+            Main.Instance.Push(new RecapPage(eps[1], eps[0]));
+        }, wait: 1.2, expect: "Play S1 · E2", tab: "Shows");
+        Step("show-recap-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Shows");
+        // Up next: the card counts down (A plays now), and after a run with no press asks "Still watching?" (B stops).
+        Step("episode-play", () =>
+        {
+            FindFocusable(GetTree().Root, "Episode 2: play")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 2.5, tab: "Shows");
+        Step("player-up-next", () => (Main.Instance.Top as PlayerScreen)?.ForceUpNext(false), wait: 1.6, tab: "Shows");
+        Step("player-up-next-play", () => Tap(JoyButton.A), wait: 2.0, tab: "Shows");
+        Step("player-still-watching", () => (Main.Instance.Top as PlayerScreen)?.ForceUpNext(true), wait: 1.2, tab: "Shows");
+        Step("player-still-stop", () => Tap(JoyButton.B), wait: 1.5, tab: "Shows");
         Step("show-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Shows");
         // Music keeps playing in the background with a now-playing chip in the header.
         Step("music", () => Tap(JoyButton.RightShoulder), wait: 1.2, tab: "Music");
@@ -97,6 +144,12 @@ public partial class SmokeTest : Node
         Step("album-player-back", () => Tap(JoyButton.B), wait: 1.2, tab: "Music");
         Step("album-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Music");
         Step("home-continue", () => Tap(JoyButton.LeftShoulder, 3), wait: 1.5, tab: "Home");
+        // Y on Home: Surprise me (Y again: another pick). X: your stats.
+        Step("home-surprise", () => Tap(JoyButton.Y), wait: 1.2, tab: "Home");
+        Step("home-surprise-again", () => Tap(JoyButton.Y), wait: 1.0, tab: "Home");
+        Step("home-surprise-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
+        Step("home-stats", () => Tap(JoyButton.X), wait: 1.5, tab: "Home");
+        Step("home-stats-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
         // Search: the View button (or /) opens it; typing filters across the library.
         // The built-in keyboard: A types the focused key, X deletes, Y adds a space; a real keyboard types too.
         Step("search", () => Tap(JoyButton.Back), wait: 1.0);
@@ -202,6 +255,8 @@ public partial class SmokeTest : Node
         Step("desktop-list-view", () => Click(FindFocusable(GetTree().Root, "List")), wait: 1.2, tab: "Movies");
         Step("desktop-sort-year", () => SortColumn(1), wait: 1.0, tab: "Movies");
         Step("desktop-grid-view", () => Click(FindFocusable(GetTree().Root, "Grid")), wait: 1.2, tab: "Movies");
+        Step("desktop-filter-watched", () => PickOption("Filter: which titles to show", 3), wait: 1.2, tab: "Movies");
+        Step("desktop-filter-all", () => PickOption("Filter: which titles to show", 0), wait: 1.2, tab: "Movies");
         Step("desktop-collections", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
         Step("desktop-all-titles", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
         Step("desktop-shows", () => Key(Godot.Key.Key3, ctrl: true), wait: 1.2, tab: "Shows");
@@ -345,6 +400,17 @@ public partial class SmokeTest : Node
     }
 
     /// <summary>Any visible control by tooltip, focusable or not (the player's buttons take no focus).</summary>
+    /// <summary>Picks an item of a drop-down (as choosing it from its popup would).</summary>
+    private void PickOption(string tooltip, int index)
+    {
+        if (FindAny(GetTree().Root, tooltip) is not OptionButton ob)
+        {
+            throw new InvalidOperationException($"no drop-down '{tooltip}'");
+        }
+        ob.Select(index);
+        ob.EmitSignal(OptionButton.SignalName.ItemSelected, index);
+    }
+
     private static Control? FindAny(Node root, string tooltip)
     {
         foreach (var c in root.GetChildren())

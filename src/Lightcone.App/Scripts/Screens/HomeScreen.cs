@@ -13,7 +13,8 @@ public partial class HomeScreen : Screen
 {
     private Control? _first;
 
-    public override IEnumerable<(string Action, string Label)> Hints => [(Pad.Switch, "Search")];
+    public override IEnumerable<(string Action, string Label)> Hints =>
+        [(Pad.Secondary, "Surprise me"), (Pad.Tertiary, "Your stats"), (Pad.Switch, "Search")];
 
     protected override void Build()
     {
@@ -110,11 +111,26 @@ public partial class HomeScreen : Screen
             }
         }, $"{item.Title}: play") { CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54) };
         var details = new ActionButton("Details", () => App.Push(new DetailPage(item)), $"{item.Title}: details") { CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54) };
+        var surprise = new ActionButton("Surprise me", () => App.Push(new SurprisePage()), "Surprise me: a random pick from what you haven't watched")
+        {
+            CustomMinimumSize = new Vector2(0, Desktop ? 44 : 54),
+        };
         play.SetMeta(PosterTile.NoHelp, true);
         details.SetMeta(PosterTile.NoHelp, true);
+        surprise.SetMeta(PosterTile.NoHelp, true);
         buttons.AddChild(play);
         buttons.AddChild(details);
-        return (panel, play, [play, details]);
+        buttons.AddChild(surprise);
+        var list = new List<Control> { play, details, surprise };
+        if (Desktop)
+        {
+            // Controller mode opens the stats with X (see the hint bar).
+            var stats = new ActionButton("Your stats", () => App.Push(new StatsPage()), "Your watch stats") { CustomMinimumSize = new Vector2(0, 44) };
+            stats.SetMeta(PosterTile.NoHelp, true);
+            buttons.AddChild(stats);
+            list.Add(stats);
+        }
+        return (panel, play, list);
     }
 
     private void BuildEmpty()
@@ -144,5 +160,13 @@ public partial class HomeScreen : Screen
 
     public override void OnAction(string action)
     {
+        if (action == Pad.Secondary)
+        {
+            App.Push(new SurprisePage());
+        }
+        else if (action == Pad.Tertiary)
+        {
+            App.Push(new StatsPage());
+        }
     }
 }

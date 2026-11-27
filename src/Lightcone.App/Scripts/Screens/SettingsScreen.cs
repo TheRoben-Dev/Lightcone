@@ -64,6 +64,7 @@ public partial class SettingsScreen : TwoPaneScreen
             "Groups movies and shows by genre and decade, next to your own and your servers' collections.",
             "Movies and Shows list collections like \"Sci-Fi movies\" and \"1990s movies\".",
             "Only collections you made and your servers' collections."));
+        Add(new ActionButton("Your stats", () => App.Push(new StatsPage()), "Hours watched, streaks, top shows and genres (Home: X)."));
         var lib = Host.Library;
         var watch = lib.Watchlist().Count;
         var mine = lib.Lists.Collections.Count;
@@ -149,6 +150,28 @@ public partial class SettingsScreen : TwoPaneScreen
             "When the server marks an episode's intro, jump past it without pressing anything.",
             "Intros are skipped by themselves (a note says so).", "A Skip intro button shows; press Y to skip."));
 
+        Stepper Choice(string label, (int Value, string Label)[] choices, int value, string help, Func<int, AppSettings> apply, Func<string, string?>? detail = null)
+        {
+            var st = new Stepper(label, choices.Select(c => (c.Value.ToString(), c.Label)), choices.OrderBy(c => Math.Abs(c.Value - value)).First().Value.ToString(), help)
+            {
+                Expands = true,
+                Wrap = false,
+                DetailFor = detail,
+            };
+            st.Changed += v => Host.SaveSettings(apply(int.Parse(v)));
+            return st;
+        }
+        Add(Choice("Up next countdown", [(0, "Off"), (5, "5 seconds"), (10, "10 seconds"), (15, "15 seconds"), (20, "20 seconds")], s.UpNextSeconds,
+            "In the end credits (or 20 seconds before the end), a card counts down to the next episode. A plays it now, B lets the credits run.",
+            v => Host.Settings with { UpNextSeconds = v },
+            v => v == "0" ? "No card: the player stops after each episode." : null));
+        Add(Choice("Still watching?", [(0, "Never ask"), (2, "After 2 episodes"), (3, "After 3 episodes"), (5, "After 5 episodes")], s.StillWatchingAfter,
+            "After this many episodes play by themselves with no button pressed, Lightcone asks before going on, so a show doesn't run all night.",
+            v => Host.Settings with { StillWatchingAfter = v }));
+        Add(Choice("Recap after a break", [(-1, "Off"), (0, "Every time"), (3, "After 3 days"), (7, "After a week"), (14, "After 2 weeks")], s.RecapAfterDays,
+            "Back to a show after a while? Before the next episode, see what happened in the last one, and rewatch its last two minutes if you like.",
+            v => Host.Settings with { RecapAfterDays = v }));
+
         Add(new ActionButton("Play a file or URL…", () => App.Push(new TextEntryPage("File or URL", "", PlayPath,
             "A path on this computer (SD card and network shares too) or a stream URL.")),
             "Opens anything mpv can play, without adding it to the library."));
@@ -196,7 +219,7 @@ public partial class SettingsScreen : TwoPaneScreen
             "Ctrl+1 to Ctrl+6: Home, Movies, Shows, Music, Sources, Settings.",
             "/ or Ctrl+F: search.  M: options for the selected item.",
             "In the player: Space pause, J / L or ← / → seek, A audio, S subtitles, F full screen, Esc leave.",
-            "Controller: A play, B back, bumpers switch sections, triggers seek, Y sort, Start options.",
+            "Controller: A play, B back, bumpers switch sections, triggers seek, Y sort & filter, Start options. Home: Y surprise me, X your stats.",
         })
         {
             col.AddChild(UiTheme.Label("•  " + line, UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));

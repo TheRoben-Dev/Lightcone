@@ -65,6 +65,9 @@ public partial class Main : Control
 
     public Screen Top => _stack[^1];
 
+    /// <summary>The page on top, or null before the first one.</summary>
+    public Screen? TopOrNull => _stack.Count > 0 ? _stack[^1] : null;
+
     /// <summary>True while a full-screen page (the player) is up: background scenes stop rendering.</summary>
     public bool FullScreenActive => _stack.Any(s => s.FullScreen && s.Visible);
 
@@ -183,6 +186,7 @@ public partial class Main : Control
         _ = Host.Plex.RefreshAllAsync();
         _ = Host.Jellyfin.RefreshAllAsync();
         _player.Changed += () => Callable.From(UpdatePlaying).CallDeferred();
+        _player.SleepFired += () => Callable.From(() => Toast("Sleep timer: playback stopped. Your spot is saved.")).CallDeferred();
 
         if (args.Contains("--open=appearance"))
         {

@@ -69,6 +69,15 @@ public sealed record AppSettings
     /// <summary>Jump past marked intros without a press.</summary>
     public bool AutoSkipIntro { get; init; }
 
+    /// <summary>Seconds the Up next card counts down before the next episode plays; 0 = no autoplay.</summary>
+    public int UpNextSeconds { get; init; } = 10;
+
+    /// <summary>Ask "Still watching?" after this many episodes play by themselves in a row; 0 = never.</summary>
+    public int StillWatchingAfter { get; init; } = 3;
+
+    /// <summary>Recap the last episode before playing a show after this many days away; -1 = never, 0 = every time.</summary>
+    public int RecapAfterDays { get; init; } = 7;
+
     /// <summary>Update channel: "stable" (releases) or "test" (test builds too); null = test for a test build, else stable.</summary>
     public string? UpdateChannel { get; init; }
 
@@ -117,7 +126,7 @@ public sealed class AppHost
         {
             Updater.TestChannel = channel == "test";
         }
-        Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile), new UserLists(Path.Combine(Paths.Data, "lists.json")))
+        Library = new MediaLibrary(new ProgressStore(Paths.ProgressFile), new UserLists(Path.Combine(Paths.Data, "lists.json")), new WatchHistory(Path.Combine(Paths.Data, "history.json")))
         {
             Music = Settings.MusicTab,
             AutoCollections = Settings.AutoCollections,

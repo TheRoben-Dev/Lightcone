@@ -3,6 +3,18 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.7.0
+
+- Up next: in an episode's end credits (or 20 seconds before the end), a card shows the next episode and counts down. A plays it now, B lets the credits run. The countdown waits while you're paused, and Settings → Playback sets its length or turns it off.
+- Still watching?: after 3 episodes in a row with no button pressed, Lightcone asks before going on, so a show doesn't play all night (2, 3, 5 or never, in Settings → Playback).
+- Sleep timer: in the player's options (X, or Options on the desktop), pick 15 minutes to 1 h 30, or the end of this episode. The sound fades out over the last 30 seconds, then playback pauses with your spot saved.
+- Speed, subtitle timing and audio timing, in the same options. They're remembered per show (every episode) or per movie, like your audio and subtitle picks.
+- "Previously": back to a show after a week away, Lightcone shows what happened in the last episode before the next one plays, and can replay its last two minutes first. Show pages show where you left off too. Settings → Playback → Recap after a break.
+- Shuffle on show pages: random episodes one after another, new ones first. Good for sitcoms.
+- Surprise me (Y on Home, or its button): a random pick from what you haven't watched, leaning toward your watchlist and shows you've started. Choose movies, shows or both, and how much time you have. Y picks again.
+- Sort & filter (Y in Movies and Shows; drop-downs on the desktop): show everything, unwatched, in progress or watched.
+- Your stats (X on Home, or Settings → Library): hours watched, movies and episodes, shows finished, your day streak, the last two weeks, top shows and genres, and what you watched lately. Plex and Jellyfin watched history counts from day one.
+
 ## 0.6.0
 
 - Show pages list seasons properly: a strip of season posters (from Plex or Jellyfin) with each season's episode count, a ✓ or how many are left, and a watched bar. Only the picked season's episodes show below, with thumbnails and a line of the plot, instead of one long list.

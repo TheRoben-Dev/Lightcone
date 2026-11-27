@@ -150,7 +150,7 @@ public partial class DetailPage : Screen
                 label = $"▶  {verb} {EpisodeCode(next) ?? next.Title}";
             }
             Act(label, () => MediaActions.PlayContainer(_item), $"{_item.Title}: play");
-            if (music)
+            if (music || children.Count(c => c.Playable) > 2)
             {
                 Act("Shuffle", () => MediaActions.PlayContainer(_item, shuffle: true), $"{_item.Title}: shuffle");
             }
@@ -164,6 +164,10 @@ public partial class DetailPage : Screen
         Focus.Row(buttons);
         _first = buttons.FirstOrDefault();
         _actionButtons = buttons;
+        if (_item.Kind == MediaKind.Show)
+        {
+            AddLeftOff(info);
+        }
 
         if (HasSeasons)
         {
@@ -262,6 +266,35 @@ public partial class DetailPage : Screen
                 tiles[i].FocusNeighborTop = buttons[0].GetPath();
             }
         }
+    }
+
+    /// <summary>"Where you left off": the last episode watched before the next one, and what happened in it.</summary>
+    private void AddLeftOff(VBoxContainer info)
+    {
+        var lib = Host.Library;
+        if (lib.NextToPlay(_item) is not { } next || lib.PositionOf(next) != null || lib.PreviousEpisode(next) is not { } prev || !lib.IsWatched(prev))
+        {
+            return;
+        }
+        var panel = new PanelContainer();
+        var box = UiTheme.Box(UiTheme.PanelHi with { A = 0.6f }, 1, 12, UiTheme.Line);
+        box.ContentMarginLeft = box.ContentMarginRight = 14;
+        box.ContentMarginTop = box.ContentMarginBottom = 10;
+        panel.AddThemeStyleboxOverride("panel", box);
+        var col = Column(4);
+        panel.AddChild(col);
+        var when = lib.LastViewed(prev) is { } at ? "  ·  " + RecapPage.Ago(at).ToUpperInvariant() : "";
+        col.AddChild(UiTheme.Label("WHERE YOU LEFT OFF" + when, UiTheme.SmallSize, UiTheme.AccentText));
+        var code = RecapPage.Code(prev);
+        col.AddChild(UiTheme.Label(code != null ? $"{code}  ·  {prev.Title}" : prev.Title, UiTheme.FontSize - 1, UiTheme.Text, wrap: true));
+        if (prev.Overview is { Length: > 0 } o)
+        {
+            var ov = UiTheme.Label(o.ReplaceLineEndings(" "), UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true);
+            ov.MaxLinesVisible = 3;
+            ov.CustomMinimumSize = new Vector2(360, 0);
+            col.AddChild(ov);
+        }
+        info.AddChild(panel);
     }
 
     // ---- shows: seasons ----

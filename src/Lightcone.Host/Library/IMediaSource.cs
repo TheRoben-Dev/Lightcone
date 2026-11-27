@@ -27,6 +27,9 @@ public interface IMediaSource
     /// <summary>Watched state the server knows, or null when it doesn't track one.</summary>
     bool? ServerWatched(string itemId) => null;
 
+    /// <summary>When the server last saw the item played (any device), or null.</summary>
+    DateTime? ServerLastViewed(string itemId) => null;
+
     /// <summary>Playback progress, for the server (called every few seconds while playing, and on pause and stop).</summary>
     void OnProgress(MediaItem item, double position, double? duration, PlaybackState state)
     {

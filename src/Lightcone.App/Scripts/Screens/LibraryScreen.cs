@@ -18,6 +18,28 @@ public partial class LibraryScreen : Screen
     private bool _collections;
     private Control? _first;
 
+    // The filter sticks per section while the app runs (switching tabs rebuilds the page).
+    private static readonly Dictionary<MediaKind, WatchFilter> FilterOf = new();
+
+    private WatchFilter Filter => HasCollections ? FilterOf.GetValueOrDefault(_kind) : WatchFilter.All;
+
+    private void SetFilter(WatchFilter f)
+    {
+        FilterOf[_kind] = f;
+        Rebuild();
+        App.UpdateChrome();
+    }
+
+    private void SetSort(SortKey key)
+    {
+        _descending = key == _sort ? !_descending : key is SortKey.Added or SortKey.Year;
+        _sort = key;
+        Rebuild();
+        App.UpdateChrome();
+    }
+
+    private void OpenViewOptions() => App.Push(new ViewOptionsPage(Sorts, () => (_sort, _descending, Filter), SetSort, HasCollections ? SetFilter : null));
+
     /// <summary>Movies and Shows can list their collections instead of every title.</summary>
     private bool HasCollections => _kind is MediaKind.Movie or MediaKind.Show;
 
@@ -40,21 +62,22 @@ public partial class LibraryScreen : Screen
         _collections
             ? [(Pad.Tertiary, "All " + _title.ToLowerInvariant()), (Pad.Switch, "Search")]
             : HasCollections
-                ? [(Pad.Secondary, "Sort: " + Sorts.First(s => s.Key == _sort).Label), (Pad.Tertiary, "Collections"), (Pad.Switch, "Search")]
-                : [(Pad.Secondary, "Sort: " + Sorts.First(s => s.Key == _sort).Label), (Pad.Switch, "Search")];
+                ? [(Pad.Secondary, "Sort & filter"), (Pad.Tertiary, "Collections"), (Pad.Switch, "Search")]
+                : [(Pad.Secondary, "Sort"), (Pad.Switch, "Search")];
 
     private bool ListView => Desktop && Host.Settings.DesktopView == "list";
 
     protected override void Build()
     {
         _first = null;
-        var items = _collections ? Host.Library.Collections(_kind) : Host.Library.Section(_kind, _sort, _descending);
+        var items = _collections ? Host.Library.Collections(_kind) : Host.Library.Section(_kind, _sort, _descending, Filter);
+        var filterLabel = Filter == WatchFilter.All ? null : ViewOptionsPage.Filters.First(f => f.Key == Filter).Label;
         var col = Column(Desktop ? 12 : 16);
         AddChild(col);
         var head = new HBoxContainer();
         head.AddThemeConstantOverride("separation", 14);
         col.AddChild(head);
-        var heading = _collections ? $"{_title} · Collections" : _title;
+        var heading = _collections ? $"{_title} · Collections" : filterLabel != null ? $"{_title} · {filterLabel}" : _title;
         head.AddChild(UiTheme.Label(UiTheme.Mono ? heading.ToUpperInvariant() : heading, Desktop ? UiTheme.TitleSize - 8 : UiTheme.TitleSize - 4, UiTheme.Text));
         var noun = _collections ? (items.Count == 1 ? "collection" : "collections") : items.Count == 1 ? "item" : "items";
         var count = UiTheme.Label($"{items.Count} {noun}", UiTheme.SmallSize + 1, UiTheme.Dim);
@@ -78,6 +101,14 @@ public partial class LibraryScreen : Screen
             var back = new ActionButton("All " + _title.ToLowerInvariant(), ToggleCollections, "Show every title");
             col.AddChild(back);
             _first = back;
+            return;
+        }
+        if (items.Count == 0 && filterLabel != null)
+        {
+            col.AddChild(UiTheme.Label($"No {_title.ToLowerInvariant()} here: none are {filterLabel.ToLowerInvariant()}.", UiTheme.FontSize - 1, UiTheme.Dim, wrap: true));
+            var all = new ActionButton("Show everything", () => SetFilter(WatchFilter.All), "Show every title");
+            col.AddChild(all);
+            _first = all;
             return;
         }
         if (items.Count == 0)
@@ -123,6 +154,17 @@ public partial class LibraryScreen : Screen
             {
                 return;
             }
+        }
+        if (HasCollections)
+        {
+            var filter = new OptionButton { TooltipText = "Filter: which titles to show" };
+            foreach (var (key, label, _) in ViewOptionsPage.Filters)
+            {
+                filter.AddItem(label, (int)key);
+            }
+            filter.Select(Array.FindIndex(ViewOptionsPage.Filters, f => f.Key == Filter));
+            filter.ItemSelected += i => SetFilter(ViewOptionsPage.Filters[i].Key);
+            head.AddChild(filter);
         }
         var sort = new OptionButton { TooltipText = "Sort by" };
         foreach (var (key, label) in Sorts)
@@ -234,12 +276,7 @@ public partial class LibraryScreen : Screen
         {
             return;
         }
-        // Y: next sort order (Title → Year → Date added → Length).
-        var i = (Array.FindIndex(Sorts, s => s.Key == _sort) + 1) % Sorts.Length;
-        _sort = Sorts[i].Key;
-        _descending = _sort is SortKey.Added or SortKey.Year;
-        Rebuild();
-        App.UpdateChrome();
-        App.Toast("Sorted by " + Sorts[i].Label.ToLowerInvariant());
+        // Y: sort and filter, on a card over the page.
+        OpenViewOptions();
     }
 }

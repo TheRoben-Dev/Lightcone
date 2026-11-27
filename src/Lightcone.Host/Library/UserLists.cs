@@ -2,8 +2,11 @@ using System.Text.Json;
 
 namespace Lightcone.Host.Library;
 
-/// <summary>Audio and subtitle choices remembered for a show (or a movie).</summary>
-public sealed record TrackChoice(string? Audio, string? Subtitle, bool SubtitlesOff);
+/// <summary>
+/// Audio and subtitle choices remembered for a show (or a movie), plus its playback speed and
+/// subtitle / audio delay (seconds) when they were changed from the default.
+/// </summary>
+public sealed record TrackChoice(string? Audio, string? Subtitle, bool SubtitlesOff, double? Speed = null, double? SubDelay = null, double? AudioDelay = null);
 
 /// <summary>A collection made in Lightcone: a name and the items in it, in the order added.</summary>
 public sealed record UserCollection(string Id, string Name, List<string> Items);
@@ -56,7 +59,24 @@ public sealed class UserLists
         lock (_gate)
         {
             var old = _tracks.GetValueOrDefault(key) ?? new TrackChoice(null, null, false);
-            _tracks[key] = new TrackChoice(audio ?? old.Audio, subtitle ?? old.Subtitle, subtitlesOff ?? old.SubtitlesOff);
+            _tracks[key] = old with { Audio = audio ?? old.Audio, Subtitle = subtitle ?? old.Subtitle, SubtitlesOff = subtitlesOff ?? old.SubtitlesOff };
+            Save();
+        }
+    }
+
+    /// <summary>Remembers a show's or movie's speed and delays (null arguments keep the old value; defaults are stored as null).</summary>
+    public void RememberPlayback(string key, double? speed = null, double? subDelay = null, double? audioDelay = null)
+    {
+        lock (_gate)
+        {
+            var old = _tracks.GetValueOrDefault(key) ?? new TrackChoice(null, null, false);
+            static double? Keep(double? v, double? old, double neutral) => v is { } x ? (Math.Abs(x - neutral) < 0.001 ? null : Math.Round(x, 2)) : old;
+            _tracks[key] = old with
+            {
+                Speed = Keep(speed, old.Speed, 1),
+                SubDelay = Keep(subDelay, old.SubDelay, 0),
+                AudioDelay = Keep(audioDelay, old.AudioDelay, 0),
+            };
             Save();
         }
     }

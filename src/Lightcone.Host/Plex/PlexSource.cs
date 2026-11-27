@@ -77,6 +77,14 @@ public sealed class PlexSource : IMediaSource
         }
     }
 
+    public DateTime? ServerLastViewed(string itemId)
+    {
+        lock (_gate)
+        {
+            return _state.TryGetValue(itemId, out var s) ? s.LastViewed : null;
+        }
+    }
+
     public bool? ServerWatched(string itemId)
     {
         lock (_gate)
