@@ -73,7 +73,7 @@ public partial class SubtitleSearchPage : Screen
             var result = r;
             var row = new ListRow(r.Title, string.Join("  ·  ", bits), null, UiTheme.Accent, onPress: () => Fetch(result), help: "Subtitle: " + r.Title)
             {
-                CustomMinimumSize = new Vector2(0, 56),
+                CustomMinimumSize = new Vector2(0, 66),
             };
             page.AddChild(row);
             rows.Add(row);

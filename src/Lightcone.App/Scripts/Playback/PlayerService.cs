@@ -579,6 +579,7 @@ public partial class PlayerService : Node
         try
         {
             ApplyTrackChoice(item);
+            ApplySubtitleLook();
             _mpv!.Load(UrlFor(item) ?? item.PlayUrl!, start);
             _mpv.Paused = false;
         }

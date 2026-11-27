@@ -53,7 +53,7 @@ public partial class CastPage : Screen
             var target = t;
             var row = new ListRow(t.Name, t.Product, null, UiTheme.Accent, onPress: () => Send(target), help: $"Play on {t.Name}")
             {
-                CustomMinimumSize = new Vector2(0, 56),
+                CustomMinimumSize = new Vector2(0, 66),
             };
             page.AddChild(row);
             rows.Add(row);
