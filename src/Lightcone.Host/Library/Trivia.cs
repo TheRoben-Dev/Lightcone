@@ -35,6 +35,78 @@ public sealed partial class Trivia
 
     private static string Key(MediaItem item) => $"{item.Kind}:{item.Title.ToLowerInvariant()}:{item.Year}";
 
+    private readonly Dictionary<string, Task<List<string>?>> _inflight = [];
+    private readonly LinkedList<MediaItem> _queue = new();
+    private Task? _worker;
+
+    /// <summary>True when <paramref name="item"/>'s fact (or "none") is already on disk: it shows at once.</summary>
+    public bool IsCached(MediaItem item)
+    {
+        lock (_gate)
+        {
+            return _cache.ContainsKey(Key(item));
+        }
+    }
+
+    /// <summary>
+    /// Looks facts up in the background, one title at a time with a pause between (polite to
+    /// Wikipedia), so detail pages show them instantly. <paramref name="soon"/> jumps the queue
+    /// (the tile you're on).
+    /// </summary>
+    public void Prefetch(IEnumerable<MediaItem> items, bool soon = false)
+    {
+        lock (_gate)
+        {
+            foreach (var item in items)
+            {
+                if (!Applies(item) || _cache.ContainsKey(Key(item)) || _inflight.ContainsKey(Key(item)))
+                {
+                    continue;
+                }
+                var existing = _queue.FirstOrDefault(q => Key(q) == Key(item));
+                if (existing != null)
+                {
+                    if (!soon)
+                    {
+                        continue;
+                    }
+                    _queue.Remove(existing);
+                }
+                if (soon)
+                {
+                    _queue.AddFirst(item);
+                }
+                else if (_queue.Count < 400)
+                {
+                    _queue.AddLast(item);
+                }
+            }
+            if (_queue.Count > 0 && (_worker == null || _worker.IsCompleted))
+            {
+                _worker = Task.Run(DrainAsync);
+            }
+        }
+    }
+
+    private async Task DrainAsync()
+    {
+        while (true)
+        {
+            MediaItem next;
+            lock (_gate)
+            {
+                if (_queue.Count == 0)
+                {
+                    return;
+                }
+                next = _queue.First!.Value;
+                _queue.RemoveFirst();
+            }
+            await EntryAsync(next, CancellationToken.None);
+            await Task.Delay(1200);
+        }
+    }
+
     /// <summary>One fact for <paramref name="item"/> (the same one each time), or null.</summary>
     public async Task<TriviaFact?> GetAsync(MediaItem item, CancellationToken ct = default)
     {
@@ -42,18 +114,48 @@ public sealed partial class Trivia
         {
             return null;
         }
+        var entry = await EntryAsync(item, ct);
+        // [page title, fact 1, fact 2, ...]
+        if (entry == null || entry.Count < 2)
+        {
+            return null;
+        }
+        var pick = entry[1 + (int)((uint)StableHash(item.Id) % (uint)(entry.Count - 1))];
+        return new TriviaFact(pick, "Wikipedia", "https://en.wikipedia.org/wiki/" + Uri.EscapeDataString(entry[0].Replace(' ', '_')));
+    }
+
+    /// <summary>The cached entry, or one lookup shared by everyone asking for the same title.</summary>
+    private Task<List<string>?> EntryAsync(MediaItem item, CancellationToken ct)
+    {
         var key = Key(item);
-        List<string>? entry;
         lock (_gate)
         {
-            _cache.TryGetValue(key, out entry);
+            if (_cache.TryGetValue(key, out var hit))
+            {
+                return Task.FromResult<List<string>?>(hit);
+            }
+            if (_inflight.TryGetValue(key, out var running))
+            {
+                return running;
+            }
+            var task = FetchAndStoreAsync(item, key, ct);
+            _inflight[key] = task;
+            return task;
         }
-        if (entry == null)
+    }
+
+    private async Task<List<string>?> FetchAndStoreAsync(MediaItem item, string key, CancellationToken ct)
+    {
+        try
         {
-            entry = await LookUpAsync(item, ct) ?? [];
+            var (ok, facts) = await LookUpAsync(item, ct);
+            if (!ok)
+            {
+                return null;  // network trouble: try again another time, don't remember "nothing"
+            }
             lock (_gate)
             {
-                _cache[key] = entry;
+                _cache[key] = facts;
                 try
                 {
                     AppHost.SaveJson(_file, _cache);
@@ -63,33 +165,34 @@ public sealed partial class Trivia
                     AppLog.Info("trivia: couldn't save the cache: " + e.Message);
                 }
             }
+            return facts;
         }
-        // [page title, fact 1, fact 2, ...]
-        if (entry.Count < 2)
+        finally
         {
-            return null;
+            lock (_gate)
+            {
+                _inflight.Remove(key);
+            }
         }
-        var pick = entry[1 + (int)((uint)StableHash(item.Id) % (uint)(entry.Count - 1))];
-        return new TriviaFact(pick, "Wikipedia", "https://en.wikipedia.org/wiki/" + Uri.EscapeDataString(entry[0].Replace(' ', '_')));
     }
 
-    private async Task<List<string>?> LookUpAsync(MediaItem item, CancellationToken ct)
+    private async Task<(bool Ok, List<string> Facts)> LookUpAsync(MediaItem item, CancellationToken ct)
     {
         try
         {
             var page = await FindPageAsync(item, ct);
             if (page == null)
             {
-                return null;
+                return (true, []);
             }
             var text = await PlainTextAsync(page, ct);
             var facts = Facts(text);
-            return facts.Count == 0 ? null : [page, .. facts];
+            return (true, facts.Count == 0 ? [] : [page, .. facts]);
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or IOException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or IOException or KeyNotFoundException or InvalidOperationException)
         {
             AppLog.Info($"trivia for {item.Title}: {e.Message}");
-            return null;
+            return (false, []);
         }
     }
 

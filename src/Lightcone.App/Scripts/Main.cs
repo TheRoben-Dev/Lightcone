@@ -179,11 +179,18 @@ public partial class Main : Control
         AppLog.Info("display: " + DisplayCheck.Describe());
         if (DisplayCheck.SteamResolutionTip() is { } tip)
         {
-            AppLog.Warn(tip);
-            Callable.From(() => GetTree().CreateTimer(2.0).Timeout += () => Error(tip)).CallDeferred();
+            AppLog.Warn(tip);  // also shown in Settings → Layout; no pop-up
         }
 
         GetViewport().GuiFocusChanged += c => _hints?.SetHelp(c.HasMeta(Stepper.ExpandsMeta) || c.HasMeta(PosterTile.NoHelp) ? "" : c.TooltipText.Split('\n')[0]);
+        // The tile you're on gets its "Did you know?" fact looked up first, so its page has it ready.
+        GetViewport().GuiFocusChanged += c =>
+        {
+            if (c is PosterTile { Item: var item } && Host?.Settings.Trivia == true)
+            {
+                Host.Trivia.Prefetch([item], soon: true);
+            }
+        };
         GetViewport().GuiFocusChanged += _ =>
         {
             if (Time.GetTicksMsec() - _navAtMs < 250)
@@ -213,6 +220,8 @@ public partial class Main : Control
         AddChild(sync);
         Host.Library.Changed += () => Callable.From(() => Host.Downloads.SyncBack(Host.Library)).CallDeferred();
         Host.Downloads.StateChanged += e => Callable.From(() => NoteDownload(e)).CallDeferred();
+        Host.Library.Changed += () => Callable.From(PrefetchTrivia).CallDeferred();
+        PrefetchTrivia();
         _player.SleepFired += () => Callable.From(() => Toast("Sleep timer: playback stopped. Your spot is saved.")).CallDeferred();
 
         if (args.Contains("--open=appearance"))
@@ -1165,6 +1174,32 @@ public partial class Main : Control
     public void Toast(string text) => _toast.Show(text);
 
     public bool ToastShowing => _toast.Visible;
+
+    private ulong _triviaAt;
+
+    /// <summary>
+    /// Looks up "Did you know?" facts in the background for what's likely to be opened: what you're
+    /// watching, then the newest movies and shows. At most once a minute (the library changes often
+    /// while it loads); the trivia queue itself goes one title at a time.
+    /// </summary>
+    private void PrefetchTrivia()
+    {
+        if (Host is not { Settings.Trivia: true } host || Time.GetTicksMsec() - _triviaAt < 60_000 && _triviaAt != 0)
+        {
+            return;
+        }
+        var lib = host.Library;
+        var watching = lib.Section(Lightcone.Host.Library.MediaKind.Movie, filter: Lightcone.Host.Library.WatchFilter.InProgress)
+            .Concat(lib.Section(Lightcone.Host.Library.MediaKind.Show, filter: Lightcone.Host.Library.WatchFilter.InProgress));
+        var newest = lib.Section(Lightcone.Host.Library.MediaKind.Movie, Lightcone.Host.Library.SortKey.Added, descending: true).Take(60)
+            .Concat(lib.Section(Lightcone.Host.Library.MediaKind.Show, Lightcone.Host.Library.SortKey.Added, descending: true).Take(40));
+        var all = watching.Concat(newest).ToList();
+        if (all.Count > 0)
+        {
+            _triviaAt = Time.GetTicksMsec();  // nothing loaded yet: try again on the next change
+            host.Trivia.Prefetch(all);
+        }
+    }
 
     /// <summary>A download started, finished or failed: say so (not while watching something).</summary>
     private void NoteDownload(Lightcone.Host.Library.DownloadEntry e)

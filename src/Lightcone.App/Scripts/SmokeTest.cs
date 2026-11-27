@@ -363,7 +363,18 @@ public partial class SmokeTest : Node
             var item = host.Library.Section(Lightcone.Host.Library.MediaKind.Movie).First(m => m.Title == "Projector Dreams");
             PlayerService.Instance.Play(item, fromStart: true);
             Main.Instance.ShowPlayer();
-        }, wait: 1.8);
+        }, wait: 0.3);
+        if (OS.GetEnvironment("SMOKE_GIF") == "1")
+        {
+            // Frames for an animated preview: one every ~0.1 s from the start.
+            for (var i = 0; i < 45; i++)
+            {
+                Step($"v10-gif-{i:00}", () => { }, wait: 0.05);
+            }
+        }
+        Step("v10-intro-spin", () => { }, wait: 0.6);
+        Step("v10-intro-lamp", () => { }, wait: 0.35);
+        Step("v10-intro-beam", () => { }, wait: 1.2);
         Step("v10-intro-done", () => ProjectorIntro.Hold = false, wait: 1.0);
         Step("v10-intro-stop", () =>
         {
@@ -513,7 +524,16 @@ public partial class SmokeTest : Node
         }
     }
 
-    private void Step(string name, Action act, double wait = 1.0, string? expect = null, string? tab = null) => _steps.Enqueue((name, act, wait, expect, tab));
+    private static readonly string? Only = OS.GetEnvironment("SMOKE_ONLY") is { Length: > 0 } o ? o : null;
+
+    private void Step(string name, Action act, double wait = 1.0, string? expect = null, string? tab = null)
+    {
+        // SMOKE_ONLY=v10 runs just the steps whose names start with it (quick visual checks).
+        if (Only == null || name.StartsWith(Only, StringComparison.Ordinal))
+        {
+            _steps.Enqueue((name, act, wait, expect, tab));
+        }
+    }
 
     private static Control? FindFocusable(Node root, string tooltip)
     {

@@ -534,7 +534,7 @@ public partial class PlayerScreen : Screen
         {
             _osdLeft -= delta;
         }
-        var show = _osdLeft > 0 || paused || !Svc.HasVideo || _showInfo || (_card.Visible && _askStill);
+        var show = (_osdLeft > 0 || paused || !Svc.HasVideo || _showInfo || (_card.Visible && _askStill)) && !_intro.Visible;
         var target = show ? 1f : 0f;
         _osd.Modulate = _osd.Modulate with { A = Mathf.MoveToward(_osd.Modulate.A, target, (float)delta * 5f) };
         // VRR: match the video's rate only while nothing is on screen and nobody is pressing anything;

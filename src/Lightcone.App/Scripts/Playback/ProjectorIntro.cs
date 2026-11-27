@@ -59,11 +59,36 @@ public partial class ProjectorIntro : Control
 
     private static PlayerService Svc => PlayerService.Instance;
 
+    private readonly ShaderMaterial _mat;
+    private readonly Label _title;
+    private readonly Label _tipLabel;
+    private float _travel;
+
     public ProjectorIntro()
     {
         MouseFilter = MouseFilterEnum.Ignore;
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         Visible = false;
+        _mat = new ShaderMaterial { Shader = new Shader { Code = ProjectorShader.Code } };
+        var scene = new ColorRect { Material = _mat, MouseFilter = MouseFilterEnum.Ignore };
+        scene.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(scene);
+        var col = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore, Alignment = BoxContainer.AlignmentMode.End };
+        col.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        col.OffsetBottom = -110;
+        col.OffsetLeft = 80;
+        col.OffsetRight = -80;
+        col.AddThemeConstantOverride("separation", 10);
+        AddChild(col);
+        _title = UiTheme.Label("", UiTheme.FontSize + 4, UiTheme.Text);
+        _title.HorizontalAlignment = HorizontalAlignment.Center;
+        _title.AutoTranslateMode = AutoTranslateModeEnum.Disabled;
+        col.AddChild(_title);
+        _tipLabel = UiTheme.Label("", UiTheme.SmallSize + 2, UiTheme.Dim, wrap: true);
+        _tipLabel.HorizontalAlignment = HorizontalAlignment.Center;
+        _tipLabel.MaxLinesVisible = 2;
+        col.AddChild(_tipLabel);
+        Resized += () => _mat.SetShaderParameter("size", Size);
     }
 
     /// <summary>Turned on in Settings (on by default).</summary>
@@ -80,9 +105,15 @@ public partial class ProjectorIntro : Control
             {
                 _t = 0;
                 _angle = 0;
+                _travel = 0;
                 _fade = 1;
                 _running = true;
                 _tip = NextTip(_tip);
+                _title.Text = cur!.Title;
+                _tipLabel.Text = _tip;
+                _mat.SetShaderParameter("size", Size);
+                _mat.SetShaderParameter("warm", UiTheme.Info.Lerp(new Color(1f, 0.86f, 0.64f), 0.6f));
+                _mat.SetShaderParameter("accent", UiTheme.Accent);
                 Visible = true;
                 Feedback.PlayProjector();
             }
@@ -92,8 +123,11 @@ public partial class ProjectorIntro : Control
             return;
         }
         _t += delta;
-        var speed = _t < Spin ? 0 : Math.Min(1, (_t - Spin) / 0.5) * 9.0;  // rad/s, winding up
-        _angle += (float)(speed * delta);
+        var t = (float)_t;
+        // Motor: winds up from Spin over half a second (rad/s at full speed).
+        var speed = t < Spin ? 0f : Math.Min(1f, (t - Spin) / 0.5f);
+        _angle += (float)(speed * 7.5 * delta);
+        _travel += (float)(speed * 0.9 * delta);
         if (!Hold && (Svc.FrameShown || cur == null || !Anim.Enabled))
         {
             _fade = Mathf.MoveToward(_fade, 0, (float)delta * 4.5f);  // ~0.2 s, over the first frames
@@ -105,7 +139,36 @@ public partial class ProjectorIntro : Control
                 return;
             }
         }
-        QueueRedraw();
+        Modulate = new Color(1, 1, 1, _fade);
+        // The camera eases in from close and slightly right, then drifts.
+        var ease = 1 - MathF.Pow(1 - Math.Min(1, t / 1.8f), 3);
+        var zoom = Mathf.Lerp(1.22f, 1.0f, ease) + 0.008f * MathF.Sin(t * 0.6f);
+        var cam = new Vector2(Mathf.Lerp(0.05f, 0.18f, ease), Mathf.Lerp(-0.18f, -0.1f, ease)) + new Vector2(0.006f * MathF.Sin(t * 0.45f), 0.004f * MathF.Cos(t * 0.5f));
+        // Lamp: off until the gate opens, a stutter while it strikes, then steady with a faint shimmer.
+        var lamp = 0f;
+        if (t > Gate)
+        {
+            var k = t - Gate;
+            lamp = k switch
+            {
+                < 0.06f => 0.7f,
+                < 0.12f => 0.1f,
+                < 0.2f => 0.85f,
+                < 0.26f => 0.35f,
+                _ => Math.Min(1f, 0.6f + (k - 0.26f) * 1.6f),
+            };
+        }
+        var drop = EaseOutBack(Math.Clamp(t / Drop, 0, 1));
+        _mat.SetShaderParameter("t", t);
+        _mat.SetShaderParameter("ang", _angle);
+        _mat.SetShaderParameter("speed", speed);
+        _mat.SetShaderParameter("film_pos", _travel);
+        _mat.SetShaderParameter("drop", drop);
+        _mat.SetShaderParameter("lamp", lamp);
+        _mat.SetShaderParameter("zoom", zoom);
+        _mat.SetShaderParameter("cam", cam);
+        _title.Modulate = new Color(1, 1, 1, Math.Clamp((t - 0.2f) / 0.4f, 0, 1) * 0.9f);
+        _tipLabel.Modulate = new Color(1, 1, 1, Math.Clamp((t - 0.45f) / 0.5f, 0, 1) * 0.8f);
     }
 
     private static float EaseOutBack(float x)
@@ -113,130 +176,5 @@ public partial class ProjectorIntro : Control
         const float c1 = 1.4f;
         const float c3 = c1 + 1;
         return 1 + c3 * MathF.Pow(x - 1, 3) + c1 * MathF.Pow(x - 1, 2);
-    }
-
-    public override void _Draw()
-    {
-        var t = (float)_t;
-        var a = _fade;
-        var c = Size / 2;
-        var unit = Math.Min(Size.X / 1280f, Size.Y / 800f);
-        DrawRect(new Rect2(Vector2.Zero, Size), new Color(0, 0, 0, a));
-        var body = UiTheme.PanelHi with { A = a };
-        var edge = UiTheme.Line.Lightened(0.25f) with { A = a };
-        var metal = UiTheme.Dim with { A = a };
-        var warm = UiTheme.Info;
-
-        // Projector body, lens on the right.
-        var bw = 230 * unit;
-        var bh = 120 * unit;
-        var bodyPos = c + new Vector2(-bw * 0.65f, 10 * unit);
-        DrawRect(new Rect2(bodyPos, new Vector2(bw, bh)), body);
-        DrawRect(new Rect2(bodyPos, new Vector2(bw, bh)), edge, false, 2 * unit);
-        DrawRect(new Rect2(bodyPos + new Vector2(18, bh - 6) * new Vector2(1, 1), new Vector2(bw - 36, 6 * unit)), edge);
-        var lens = bodyPos + new Vector2(bw + 18 * unit, bh * 0.45f);
-        DrawRect(new Rect2(bodyPos + new Vector2(bw, bh * 0.45f - 16 * unit), new Vector2(22 * unit, 32 * unit)), body);
-        DrawCircle(lens, 20 * unit, edge);
-        DrawCircle(lens, 14 * unit, new Color(0.05f, 0.05f, 0.06f, a));
-
-        // Beam: opens at the gate, flickers a little, reaches to the right edge.
-        if (t > Gate)
-        {
-            var open = Math.Min(1, (t - Gate) / 0.35f);
-            var flicker = 0.85f + 0.15f * MathF.Sin(t * 47f) * MathF.Sin(t * 13f);
-            var far = Size.X + 40;
-            var spread = (far - lens.X) * 0.28f * open;
-            var beam = new[] { lens + new Vector2(0, -10 * unit), new Vector2(far, lens.Y - spread), new Vector2(far, lens.Y + spread), lens + new Vector2(0, 10 * unit) };
-            var col = warm with { A = 0.22f * open * flicker * a };
-            var edgeCol = warm with { A = 0 };
-            DrawPolygon(beam, [col, edgeCol, edgeCol, col]);
-            DrawCircle(lens, 9 * unit, warm with { A = 0.9f * open * a });
-        }
-
-        // Take-up reel at the back (always there), feed reel dropping in at the front.
-        var spindleBack = bodyPos + new Vector2(bw * 0.16f, -58 * unit);
-        var spindleFront = bodyPos + new Vector2(bw * 0.8f, -80 * unit);
-        DrawLine(bodyPos + new Vector2(bw * 0.16f, 0), spindleBack, metal, 4 * unit);
-        DrawLine(bodyPos + new Vector2(bw * 0.8f, 0), spindleFront, metal, 4 * unit);
-        Reel(spindleBack, 46 * unit, -_angle * 1.3f, a, unit);
-        var drop = Math.Clamp(t / Drop, 0, 1);
-        var y = Mathf.Lerp(-260 * unit, 0, EaseOutBack(drop));
-        var frontA = a * Math.Clamp(t / 0.15f, 0, 1);
-        Reel(spindleFront + new Vector2(30 * unit * (1 - drop), y), 70 * unit, _angle, frontA, unit);
-        // Film strip from the feed reel through the gate.
-        if (drop >= 1)
-        {
-            var film = UiTheme.Accent.Darkened(0.35f) with { A = a * 0.9f };
-            DrawLine(spindleFront + new Vector2(70 * unit, 20 * unit), bodyPos + new Vector2(bw - 6 * unit, 8 * unit), film, 3 * unit);
-            DrawLine(spindleBack + new Vector2(-44 * unit, 24 * unit), bodyPos + new Vector2(10 * unit, 8 * unit), film, 3 * unit);
-        }
-
-        // A label that names what's coming, under the projector.
-        if (_for != null)
-        {
-            var font = UiTheme.CurrentFont;
-            var text = _for.Title;
-            var size = (int)(22 * unit);
-            var w = font.GetStringSize(text, HorizontalAlignment.Left, -1, size).X;
-            DrawString(font, new Vector2(c.X - w / 2, bodyPos.Y + bh + 64 * unit), text, HorizontalAlignment.Left, -1, size, UiTheme.Text with { A = a * Math.Clamp((t - 0.2f) / 0.4f, 0, 1) * 0.85f });
-            if (_tip.Length > 0)
-            {
-                // The tip, wrapped to at most two centred lines under the title.
-                var tipSize = (int)(17 * unit);
-                var maxW = Math.Min(Size.X - 120 * unit, 900 * unit);
-                var tipA = a * Math.Clamp((t - 0.4f) / 0.5f, 0, 1) * 0.7f;
-                var lines = Wrap(font, Tr(_tip), tipSize, maxW);
-                for (var i = 0; i < lines.Count && i < 2; i++)
-                {
-                    var lw = font.GetStringSize(lines[i], HorizontalAlignment.Left, -1, tipSize).X;
-                    DrawString(font, new Vector2(c.X - lw / 2, bodyPos.Y + bh + (104 + i * 26) * unit), lines[i], HorizontalAlignment.Left, -1, tipSize, UiTheme.Dim with { A = tipA });
-                }
-            }
-        }
-    }
-
-    private static List<string> Wrap(Font font, string text, int size, float maxW)
-    {
-        var lines = new List<string>();
-        var cur = "";
-        foreach (var word in text.Split(' '))
-        {
-            var next = cur.Length == 0 ? word : cur + " " + word;
-            if (cur.Length > 0 && font.GetStringSize(next, HorizontalAlignment.Left, -1, size).X > maxW)
-            {
-                lines.Add(cur);
-                cur = word;
-            }
-            else
-            {
-                cur = next;
-            }
-        }
-        if (cur.Length > 0)
-        {
-            lines.Add(cur);
-        }
-        return lines;
-    }
-
-    private void Reel(Vector2 at, float r, float angle, float a, float unit)
-    {
-        var metal = UiTheme.Dim with { A = a };
-        var dark = new Color(0.03f, 0.03f, 0.04f, a);
-        var red = UiTheme.Accent with { A = a };
-        DrawCircle(at, r, metal);
-        DrawCircle(at, r * 0.93f, UiTheme.Panel with { A = a });
-        // Wound film.
-        DrawCircle(at, r * 0.78f, UiTheme.Accent.Darkened(0.55f) with { A = a });
-        // Five windows.
-        for (var i = 0; i < 5; i++)
-        {
-            var ang = angle + i * Mathf.Tau / 5;
-            var p = at + new Vector2(MathF.Cos(ang), MathF.Sin(ang)) * r * 0.52f;
-            DrawCircle(p, r * 0.2f, dark);
-        }
-        DrawCircle(at, r * 0.16f, metal);
-        DrawCircle(at, r * 0.07f, red);
-        DrawArc(at, r, 0, Mathf.Tau, 48, UiTheme.Line.Lightened(0.3f) with { A = a }, 1.5f * unit, true);
     }
 }
