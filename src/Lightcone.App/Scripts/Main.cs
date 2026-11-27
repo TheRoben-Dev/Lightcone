@@ -699,6 +699,7 @@ public partial class Main : Control
     /// <summary>Releases Godot objects that C# statics keep alive, while .NET is still running.</summary>
     public override void _ExitTree()
     {
+        IdleInhibit.Release();
         try
         {
             if (Host != null && File.Exists(Host.PidFile))
@@ -831,6 +832,8 @@ public partial class Main : Control
         {
             _player.Paced = false;  // anything else on screen runs at the display's rate
         }
+        // No screen dimming, screensaver or sleep while a video plays (paused or stopped: normal).
+        IdleInhibit.Update(_player.Active && _player.HasVideo && !_player.Paused);
         if (_appFocused)
         {
             TouchScroll.Process(delta);

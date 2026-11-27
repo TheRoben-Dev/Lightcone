@@ -65,7 +65,7 @@ public partial class PlayerScreen : Screen
         {
             AddThemeConstantOverride($"margin_{side}", 0);
         }
-        var root = new Control { MouseFilter = MouseFilterEnum.Stop, FocusMode = FocusModeEnum.All, TooltipText = "Player" };
+        var root = new Control { MouseFilter = MouseFilterEnum.Stop, FocusMode = FocusModeEnum.All, Name = "Player" };  // no tooltip: it popped up under the idle pointer mid-movie
         root.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         root.GuiInput += OnPointer;
         AddChild(root);

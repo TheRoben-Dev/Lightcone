@@ -391,7 +391,7 @@ public partial class SmokeTest : Node
         if (OS.GetEnvironment("SMOKE_GIF") == "1")
         {
             // Frames for an animated preview: one every ~0.1 s from the start.
-            for (var i = 0; i < 45; i++)
+            for (var i = 0; i < 60; i++)
             {
                 Step($"v10-gif-{i:00}", () => { }, wait: 0.05);
             }
@@ -399,7 +399,16 @@ public partial class SmokeTest : Node
         Step("v10-intro-spin", () => { }, wait: 0.6);
         Step("v10-intro-lamp", () => { }, wait: 0.35);
         Step("v10-intro-beam", () => { }, wait: 1.2);
-        Step("v10-intro-done", () => ProjectorIntro.Hold = false, wait: 1.0);
+        // The film is ready: it goes up on the screen and the camera pushes in until it fills the frame.
+        Step("v10-intro-push", () => { PlayerService.Instance.SeekTo(30); ProjectorIntro.Hold = false; }, wait: 0.3);
+        if (OS.GetEnvironment("SMOKE_GIF") == "1")
+        {
+            for (var i = 0; i < 24; i++)
+            {
+                Step($"v10-gif-push-{i:00}", () => { }, wait: 0.05);
+            }
+        }
+        Step("v10-intro-done", () => { }, wait: 1.5);
         Step("v10-intro-stop", () =>
         {
             PlayerService.Instance.Stop();
