@@ -8,6 +8,12 @@ namespace Lightcone.App.Ui;
 /// </summary>
 public partial class ListRow : Button
 {
+    /// <summary>
+    /// Tooltips are for the desktop. In the controller layout the hidden mouse can still rest on a
+    /// card (after a touch), which would pop its title up over the art.
+    /// </summary>
+    public override string _GetTooltip(Vector2 atPosition) => UiLayout.Desktop ? TooltipText : "";
+
     private readonly Label _status;
 
     public ListRow(string title, string detail, string? status = null, Color? statusColor = null, Control? leading = null,

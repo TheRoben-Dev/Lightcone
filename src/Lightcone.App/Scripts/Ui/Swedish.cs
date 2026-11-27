@@ -143,6 +143,8 @@ internal static class Swedish
         ["Mark watched"] = "Markera som sedd",
         ["Season unwatched"] = "Säsongen osedd",
         ["Season watched"] = "Säsongen sedd",
+        ["Episode watched"] = "Avsnittet sett",
+        ["Episode unwatched"] = "Avsnittet osett",
         ["Mark season watched"] = "Markera säsongen som sedd",
         ["Mark season unwatched"] = "Markera säsongen som osedd",
         ["Remove from watchlist"] = "Ta bort från bevakningslistan",

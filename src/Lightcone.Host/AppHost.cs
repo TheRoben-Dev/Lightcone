@@ -203,7 +203,7 @@ public sealed class AppHost
         Plex = new Plex.PlexService(Library, Paths.Config, Paths.Data, http);
         Jellyfin = new Jellyfin.JellyfinService(Library, Paths.Config, Paths.Data, http);
         Downloads = new Downloads(Path.Combine(Paths.Data, "downloads.json"), () => Settings.DownloadFolder ?? Path.Combine(Paths.Data, "downloads"));
-        Trivia = new Trivia(Path.Combine(Paths.Data, "trivia.json"));
+        Trivia = new Trivia(Path.Combine(Paths.Data, "trivia-v2.json"));  // v2: stricter sentence picking
     }
 
     /// <summary>Adds or removes the sample library.</summary>

@@ -318,12 +318,24 @@ public abstract partial class Screen : MarginContainer
         var gutter = new MarginContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         gutter.AddThemeConstantOverride("margin_right", 6);
         gutter.AddThemeConstantOverride("margin_left", 4);
-        gutter.AddThemeConstantOverride("margin_top", 4);
+        gutter.AddThemeConstantOverride("margin_top", 10);  // the focus pop of the first row isn't clipped
         gutter.AddThemeConstantOverride("margin_bottom", 24);  // the last row clears the hint bar
         gutter.AddChild(content);
         s.AddChild(gutter);
         s.AddChild(new ScrollFollower());
         return s;
+    }
+
+    /// <summary>A scroller whose top and bottom fade out softly while there's more to scroll to.</summary>
+    protected static Control Faded(ScrollContainer s)
+    {
+        var fade = new EdgeFade(horizontal: false, near: 28, far: 48)
+        {
+            SizeFlagsHorizontal = s.SizeFlagsHorizontal,
+            SizeFlagsVertical = s.SizeFlagsVertical,
+        };
+        fade.AddChild(s);
+        return fade;
     }
 
     /// <summary>

@@ -132,7 +132,7 @@ public partial class LibraryScreen : Screen
         var grid = new GridContainer { Columns = columns };
         grid.AddThemeConstantOverride("h_separation", gap);
         grid.AddThemeConstantOverride("v_separation", gap);
-        col.AddChild(Scroller(grid));
+        col.AddChild(Faded(Scroller(grid)));
         var tiles = new List<Control>();
         foreach (var item in items)
         {

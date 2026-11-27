@@ -35,7 +35,7 @@ public partial class HomeScreen : Screen
             return;
         }
         var col = Column(Desktop ? 22 : 30);
-        AddChild(Scroller(col));
+        AddChild(Faded(Scroller(col)));
         var lead = rows.FirstOrDefault(r => r.Id == "continue") ?? rows[0];
         var featured = lead.Items[0];
         var hero = BuildHero(featured, resume: lead.Id == "continue");

@@ -29,10 +29,24 @@ public class TriviaTests
     {
         var facts = Trivia.Facts(Article);
         Assert.Equal(2, facts.Count);
-        Assert.StartsWith("The director had wanted", facts[0]);
-        Assert.StartsWith("Principal photography began", facts[1]);
+        Assert.StartsWith("Principal photography began", facts[0]);  // has a date: ranks first
+        Assert.StartsWith("The director had wanted", facts[1]);
         Assert.DoesNotContain(facts, f => f.StartsWith("However") || f.StartsWith("He ") || f.Contains("Venice"));
     }
+
+    [Theory]
+    [InlineData("The actual creation budget is significantly less than that...I'll give you a ballpark range.")]
+    [InlineData("This decision led the studio to push the release back by almost a full year to the following spring.")]
+    [InlineData("The showrunner said the budget was \"a lot less than people think\" when asked about the cost of each episode.")]
+    [InlineData("We wanted every frame of the series to look like a painting, so the team developed a new rendering pipeline.")]
+    [InlineData("He was hired in 2017 after the studio saw an early test reel and liked the look of the painted backgrounds.")]
+    [InlineData("The budget ended up much higher than that of the first season because of the larger cast and the new sets.")]
+    public void RejectsSentencesThatLeanOnContext(string sentence) => Assert.False(Trivia.StandsAlone(sentence));
+
+    [Theory]
+    [InlineData("Principal photography began in March 2019 at Origo Film Studios in Budapest, with desert scenes shot in Jordan and Abu Dhabi.")]
+    [InlineData("Fortiche spent six years making the first season, blending hand-painted textures with 3D animation for its characters.")]
+    public void KeepsSentencesThatStandAlone(string sentence) => Assert.True(Trivia.StandsAlone(sentence));
 
     [Theory]
     [InlineData("Dune (2021 film)", "Dune", MediaKind.Movie, 2021, true)]

@@ -13,6 +13,15 @@ public partial class FocusHighlight : Control
 {
     public const string OwnFocus = "ed_own_focus";
 
+    /// <summary>
+    /// Meta holding a child Control: the ring frames that child (a poster card's artwork, not its
+    /// caption) and is drawn as an outline only, so the picture isn't tinted.
+    /// </summary>
+    public const string FrameChild = "focus_frame_child";
+
+    private StyleBox? _fillStyle;
+    private StyleBox? _outlineStyle;
+
     private readonly Control _clip = new() { ClipContents = true, MouseFilter = MouseFilterEnum.Ignore };
     private readonly Ring _ring = new();
     private Control? _target;
@@ -46,7 +55,19 @@ public partial class FocusHighlight : Control
     }
 
     /// <summary>Theme changed: rebuild the ring's style.</summary>
-    public void Restyle() => _ring.Style = UiTheme.Focus();
+    public void Restyle()
+    {
+        _fillStyle = UiTheme.Focus();
+        var outline = UiTheme.Focus();
+        outline.DrawCenter = false;
+        outline.SetCornerRadiusAll(Math.Min(14, Math.Max(UiTheme.Spec.Radius, 2)));
+        outline.ExpandMarginLeft = outline.ExpandMarginRight = outline.ExpandMarginTop = outline.ExpandMarginBottom = 2;
+        _outlineStyle = outline;
+        _ring.Style = _fillStyle;
+    }
+
+    private static Control? FrameOf(Control c) =>
+        c.HasMeta(FrameChild) && c.GetMeta(FrameChild).AsGodotObject() is Control f && IsInstanceValid(f) ? f : null;
 
     /// <summary>Quick squeeze on press, so A/Enter has a visible response on every control.</summary>
     public void Pulse() => _press = Anim.Enabled ? 1f : 0f;
@@ -72,6 +93,7 @@ public partial class FocusHighlight : Control
 
     private static Rect2 TargetRect(Control c)
     {
+        c = FrameOf(c) ?? c;
         var xf = c.GetGlobalTransformWithCanvas();
         return xf * new Rect2(Vector2.Zero, c.Size);
     }
@@ -116,6 +138,11 @@ public partial class FocusHighlight : Control
             return;
         }
         var own = c!.HasMeta(OwnFocus);
+        var style = FrameOf(c) != null ? _outlineStyle : _fillStyle;
+        if (_ring.Style != style)
+        {
+            _ring.Style = style;
+        }
         var target = TargetRect(c);
         var targetAlpha = own ? 0f : Opacity(c);
         _t = Math.Min(1, _t + delta / 0.15);

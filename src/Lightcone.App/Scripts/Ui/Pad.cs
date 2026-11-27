@@ -110,6 +110,25 @@ public static class Pad
                 }
             }
         }
+        // Hot-plug: forget anything a pad held when it goes away, so no button or direction sticks.
+        Input.Singleton.JoyConnectionChanged += (device, connected) =>
+        {
+            Lightcone.Host.AppLog.Info($"pad {device} {(connected ? "connected" : "disconnected")}; pads: {DescribePads()}");
+            foreach (var down in _buttonDown.Values)
+            {
+                down.Remove((int)device);
+            }
+            _sticks.Remove((int)device);
+            if (!connected && _glyphDevice == device)
+            {
+                _glyphDevice = -1;
+            }
+            if (!connected)
+            {
+                _dpadHeld.Clear();
+                _held = null;
+            }
+        };
         AddKeyAction(TabPrev, Key.Q, Key.Pageup);
         AddKeyAction(TabNext, Key.E, Key.Pagedown);
         AddKeyAction(Secondary, Key.R);
@@ -173,6 +192,10 @@ public static class Pad
                 SetFamily(PadFamily.Keyboard);
                 return false;
             case InputEventJoypadButton jb:
+                if (IsDuplicate(jb))
+                {
+                    return true;
+                }
                 LastDevice = jb.Device;
                 if (jb.Device != _glyphDevice)
                 {
@@ -234,6 +257,44 @@ public static class Pad
             default:
                 return false;
         }
+    }
+
+    // The same physical controller can show up as two joypads: in Game Mode Steam Input exposes
+    // a virtual pad while SDL also sees the raw device, so every button arrives twice (the stick
+    // doesn't double, since it's read as state). A button counts as held while any device holds
+    // it: a press only counts if no other device already holds that button and the same button
+    // wasn't pressed on another device a moment ago; a release only counts once every device has
+    // let go.
+    private static readonly Dictionary<JoyButton, HashSet<int>> _buttonDown = new();
+    private static readonly Dictionary<JoyButton, (int Device, ulong At)> _lastPress = new();
+    private const ulong EchoWindowMs = 80;
+
+    private static bool IsDuplicate(InputEventJoypadButton jb)
+    {
+        if (!_buttonDown.TryGetValue(jb.ButtonIndex, out var down))
+        {
+            _buttonDown[jb.ButtonIndex] = down = new HashSet<int>();
+        }
+        var now = Time.GetTicksMsec();
+        if (jb.Pressed)
+        {
+            var othersHolding = down.Any(d => d != jb.Device);
+            var already = !down.Add(jb.Device);
+            // Another device echoing this press a moment later.
+            var echo = _lastPress.TryGetValue(jb.ButtonIndex, out var last) && last.Device != jb.Device && now - last.At < EchoWindowMs;
+            if (othersHolding || already || echo)
+            {
+                return true;
+            }
+            _lastPress[jb.ButtonIndex] = (jb.Device, now);
+            return false;
+        }
+        if (!down.Remove(jb.Device))
+        {
+            // Release from a device whose press we never saw (or an echo already released).
+            return down.Count > 0 || (_lastPress.TryGetValue(jb.ButtonIndex, out var l) && l.Device != jb.Device);
+        }
+        return down.Count > 0;
     }
 
     private static string? ActionFor(JoyButton b, PadFamily family)
@@ -337,6 +398,7 @@ public static class Pad
     public static void ReleaseAll()
     {
         _dpadHeld.Clear();
+        _buttonDown.Clear();
         _sticks.Clear();
         _triggerHeld.Clear();
         _held = null;

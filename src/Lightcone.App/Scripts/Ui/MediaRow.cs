@@ -25,7 +25,10 @@ public partial class MediaRow : VBoxContainer
             HorizontalScrollMode = desktop ? ScrollContainer.ScrollMode.Auto : ScrollContainer.ScrollMode.ShowNever,
             SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
-        AddChild(scroll);
+        // The row fades out at either end while there's more to scroll to, instead of a hard cut.
+        var fade = new EdgeFade(horizontal: true, near: 40, far: 64) { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        fade.AddChild(scroll);
+        AddChild(fade);
         var hbox = new HBoxContainer();
         hbox.AddThemeConstantOverride("separation", desktop ? 16 : 22);
         // Room for the focus ring and the focus pop.

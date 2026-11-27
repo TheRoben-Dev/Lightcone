@@ -30,6 +30,14 @@ public partial class SmokeTest : Node
         Step("home-down", () => Tap(JoyButton.DpadDown), tab: "Home");
         Step("home-right", () => Tap(JoyButton.DpadRight), tab: "Home");
         Step("home-stick", () => { Stick(1f, 0f); Stick(0f, 0f); }, tab: "Home");
+        // One controller seen as two joypads (Steam's virtual pad plus the raw device): every
+        // button arrives twice, interleaved or back to back. Each press must still move once.
+        Step("home-twin-pad", () =>
+        {
+            TwinTap(JoyButton.DpadRight, interleaved: true);
+            TwinTap(JoyButton.DpadLeft, interleaved: false);
+            TwinTap(JoyButton.DpadRight, interleaved: true);
+        }, expect: "Afterglow", tab: "Home");
         // Back up to the hero: the page scrolls all the way to the top again.
         Step("home-down-more", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, tab: "Home");
         Step("home-up-top", () => Tap(JoyButton.DpadUp, 3), wait: 0.9, expect: "Play", tab: "Home");
@@ -137,8 +145,24 @@ public partial class SmokeTest : Node
         Step("show-episodes", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
         // RT / LT switch season from the episode list too.
         Step("show-season-trigger", () => Trigger(JoyAxis.TriggerRight), wait: 0.8, expect: "Episode 1: play", tab: "Shows");
-        // Y marks the whole season watched.
-        Step("show-season-watched", () => Tap(JoyButton.Y), wait: 1.0, tab: "Shows");
+        // Y on the season's mark button marks the whole season watched...
+        Step("show-season-watched", () => { Tap(JoyButton.DpadUp); Tap(JoyButton.Y); }, wait: 1.0, expect: "Mark season unwatched", tab: "Shows");
+        // ...and Y on an episode row marks just that episode (here: back to unwatched).
+        Step("show-episode-unwatched", () => { Tap(JoyButton.DpadDown); Tap(JoyButton.Y); }, wait: 1.0, expect: "Episode 1: play", tab: "Shows");
+        Step("show-episode-check", () =>
+        {
+            var lib = Main.Instance.Host!.Library;
+            var id = GetViewport().GuiGetFocusOwner()?.GetMeta("lightcone_episode", "").AsString() ?? "";
+            if (lib.Find(id) is not { } ep || lib.IsWatched(ep))
+            {
+                throw new InvalidOperationException($"episode {id} should be unwatched after Y");
+            }
+            var others = lib.Children(ep.ParentId ?? "").Where(e => e.Season == ep.Season && e.Id != ep.Id && e.Playable);
+            if (others.Any(e => !lib.IsWatched(e)))
+            {
+                throw new InvalidOperationException("Y on one episode changed the others");
+            }
+        }, wait: 0.5, expect: "Episode 1: play", tab: "Shows");
         // "Previously": the recap card before an episode after a break.
         Step("show-recap", () =>
         {
@@ -591,6 +615,19 @@ public partial class SmokeTest : Node
             Joy(b, false);
             Input.FlushBufferedEvents();
         }
+    }
+
+    private static void TwinTap(JoyButton b, bool interleaved)
+    {
+        InputEventJoypadButton Ev(int device, bool pressed) => new() { Device = device, ButtonIndex = b, Pressed = pressed };
+        InputEvent[] events = interleaved
+            ? [Ev(0, true), Ev(1, true), Ev(0, false), Ev(1, false)]
+            : [Ev(0, true), Ev(0, false), Ev(1, true), Ev(1, false)];
+        foreach (var e in events)
+        {
+            Input.ParseInputEvent(e);
+        }
+        Input.FlushBufferedEvents();
     }
 
     private static void Trigger(JoyAxis axis)

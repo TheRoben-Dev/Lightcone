@@ -186,7 +186,7 @@ public sealed partial class Trivia
                 return (true, []);
             }
             var text = await PlainTextAsync(page, ct);
-            var facts = Facts(text);
+            var facts = Facts(text, item.Title);
             return (true, facts.Count == 0 ? [] : [page, .. facts]);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or IOException or KeyNotFoundException or InvalidOperationException)
@@ -247,12 +247,19 @@ public sealed partial class Trivia
         return "";
     }
 
-    /// <summary>Stand-alone sentences from the production-type sections of a plain-text article.</summary>
-    internal static List<string> Facts(string article)
+    /// <summary>
+    /// Whole sentences that make sense on their own, from the production-type sections of a
+    /// plain-text article, best first. Anything that leans on the text around it is dropped:
+    /// quotes, "I" / "we" / "you", an opening pronoun or link word ("He", "This", "However"),
+    /// back-references ("this", "that decision"), ellipses and citation leftovers. Better no box
+    /// than a confusing one.
+    /// </summary>
+    internal static List<string> Facts(string article, string? title = null)
     {
-        var facts = new List<string>();
+        var scored = new List<(string Text, int Score, int Order)>();
         var inSection = false;
         var level = 0;
+        var core = false;
         foreach (var raw in article.Split('\n'))
         {
             var line = raw.Trim();
@@ -263,8 +270,12 @@ public sealed partial class Trivia
                 var name = h.Groups[2].Value.Trim();
                 if (Sections.Any(s => name.StartsWith(s, StringComparison.OrdinalIgnoreCase)))
                 {
+                    if (!inSection || lv <= level)
+                    {
+                        level = lv;
+                    }
                     inSection = true;
-                    level = lv;
+                    core = new[] { "Production", "Development", "Filming", "Casting", "Principal photography" }.Any(s => name.StartsWith(s, StringComparison.OrdinalIgnoreCase));
                 }
                 else if (inSection && lv <= level)
                 {
@@ -276,17 +287,51 @@ public sealed partial class Trivia
             {
                 continue;
             }
-            foreach (var s in SentenceRegex().Split(line))
+            foreach (var part in SentenceRegex().Split(line))
             {
-                var t = s.Trim();
-                if (t.Length is >= 70 and <= 230 && char.IsUpper(t[0]) && t.EndsWith('.') && !t.Contains('[') && !t.Contains("citation")
-                    && !Weak.Any(w => t.StartsWith(w, StringComparison.Ordinal)) && facts.Count < 12)
+                var t = part.Trim();
+                if (!StandsAlone(t))
                 {
-                    facts.Add(t);
+                    continue;
                 }
+                var score = (core ? 2 : 0) + (DigitRegex().IsMatch(t) ? 1 : 0)
+                    + (title != null && t.Contains(title, StringComparison.OrdinalIgnoreCase) ? 2 : 0)
+                    + (t.Length is >= 100 and <= 190 ? 1 : 0);
+                scored.Add((t, score, scored.Count));
             }
         }
-        return facts;
+        return scored.OrderByDescending(x => x.Score).ThenBy(x => x.Order).Take(6).Select(x => x.Text).ToList();
+    }
+
+    private static readonly string[] Openers =
+    [
+        "He ", "She ", "They ", "It ", "It's", "This ", "That ", "These ", "Those ", "There ", "Here ", "His ", "Her ", "Their ", "Its ",
+        "However", "Also", "In addition", "Additionally", "Although", "Though", "Instead", "Later", "Then", "Meanwhile", "Despite",
+        "Such ", "Both ", "Each ", "Another ", "The latter", "The former", "The same", "Nevertheless", "Furthermore", "Moreover",
+        "As a result", "As such", "Because of", "Similarly", "Likewise", "Otherwise", "Still", "Yet ", "But ", "And ", "So ", "Or ",
+    ];
+
+    /// <summary>A sentence a reader understands without the one before it.</summary>
+    internal static bool StandsAlone(string t)
+    {
+        if (t.Length is < 80 or > 220 || !char.IsUpper(t[0]) || !t.EndsWith('.') || t.EndsWith("..."))
+        {
+            return false;
+        }
+        if (t.IndexOfAny(['"', '\u201c', '\u201d', '\u2026', '[', ']', ':', ';']) >= 0 || t.Contains("citation", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if (Openers.Any(o => t.StartsWith(o, StringComparison.Ordinal)))
+        {
+            return false;
+        }
+        if (PersonRegex().IsMatch(t) || BackRefRegex().IsMatch(t) || SingleQuoteRegex().IsMatch(t))
+        {
+            return false;
+        }
+        // Balanced brackets, or it was cut mid-aside.
+        return t.Count(c => c == '(') == t.Count(c => c == ')');
     }
 
     private static string Normalize(string s) =>
@@ -316,4 +361,19 @@ public sealed partial class Trivia
 
     [GeneratedRegex(@"(?<=[.!?])\s+(?=[A-Z""'])")]
     private static partial Regex SentenceRegex();
+
+    [GeneratedRegex(@"\d")]
+    private static partial Regex DigitRegex();
+
+    // First and second person: someone speaking, so a quote out of context.
+    [GeneratedRegex(@"\b(I|I'm|I'll|I've|I'd|[Mm]e|[Mm]y|[Ww]e|[Ww]e're|[Oo]ur|[Uu]s|[Yy]ou|[Yy]our|[Yy]ou're)\b")]
+    private static partial Regex PersonRegex();
+
+    // Words that point back at the text before: "this", "these", "those", "than that", "the latter".
+    [GeneratedRegex(@"\b([Tt]his|[Tt]hese|[Tt]hose|[Ss]uch|latter|former|aforementioned)\b|\b(than|of|like|with|from|about|after|before) that\b|\bthat (time|point|year|decision|version|idea|scene|change|role|film|series|show|season|episode)\b|\b(he|she|they|it) (also|later|then)\b")]
+    private static partial Regex BackRefRegex();
+
+    // A quoted phrase in single quotes (an apostrophe inside a word is fine).
+    [GeneratedRegex(@"(^|\s)'\w|\w'(\s|[.,]|$)")]
+    private static partial Regex SingleQuoteRegex();
 }

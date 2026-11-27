@@ -22,7 +22,7 @@ public partial class PersonPage : Screen
     {
         _first = null;
         var col = Column(Desktop ? 16 : 22);
-        AddChild(Scroller(col));
+        AddChild(Faded(Scroller(col)));
         var top = new HBoxContainer();
         top.AddThemeConstantOverride("separation", Desktop ? 22 : 30);
         col.AddChild(top);

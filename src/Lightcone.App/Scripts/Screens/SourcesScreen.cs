@@ -13,7 +13,7 @@ public partial class SourcesScreen : Screen
     {
         var lib = Host.Library;
         var col = Column(Desktop ? 10 : 14);
-        AddChild(Scroller(col));
+        AddChild(Faded(Scroller(col)));
         col.AddChild(UiTheme.Label("Sources", Desktop ? UiTheme.TitleSize - 8 : UiTheme.TitleSize - 4, UiTheme.Text));
         var rows = new List<Control>();
         col.AddChild(Section("Your sources"));

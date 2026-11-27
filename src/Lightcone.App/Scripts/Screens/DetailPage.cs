@@ -125,6 +125,10 @@ public partial class DetailPage : Screen
             {
                 hints.Add((Pad.Secondary, Host.Library.IsWatched(_item) ? "Mark unwatched" : "Mark watched"));
             }
+            else if (HasSeasons && FocusedEpisode() is { Playable: true } ep)
+            {
+                hints.Add((Pad.Secondary, Host.Library.IsWatched(ep) ? "Episode unwatched" : "Episode watched"));
+            }
             else if (HasSeasons && CurrentSeason is { } season)
             {
                 hints.Add((Pad.Secondary, SeasonWatched(season) ? "Season unwatched" : "Season watched"));
@@ -151,7 +155,7 @@ public partial class DetailPage : Screen
         _episodes = null;
         var lib = Host.Library;
         var col = Column(Desktop ? 16 : 22);
-        AddChild(Scroller(col));
+        AddChild(Faded(Scroller(col)));
 
         var top = new HBoxContainer();
         top.AddThemeConstantOverride("separation", Desktop ? 26 : 34);
@@ -830,6 +834,7 @@ public partial class DetailPage : Screen
                 CustomMinimumSize = new Vector2(0, thumb.Y + 18),
             };
             row.SetMeta(PosterTile.NoHelp, true);
+            row.SetMeta(EpisodeMeta, e.Id);
             _episodes.AddChild(row);
             rows.Add(row);
         }
@@ -876,6 +881,36 @@ public partial class DetailPage : Screen
         options.Add(("See downloads", () => App.Push(new DownloadsPage())));
         options.Add(("Cancel", () => { }));
         App.Push(new ChoicePage($"Download {_item.Title} to watch offline:", [.. options]));
+    }
+
+    private const string EpisodeMeta = "lightcone_episode";
+
+    /// <summary>The episode whose row has focus, if any.</summary>
+    private MediaItem? FocusedEpisode()
+    {
+        if (GetViewport().GuiGetFocusOwner() is not { } c || !c.HasMeta(EpisodeMeta) || !IsAncestorOf(c))
+        {
+            return null;
+        }
+        var id = c.GetMeta(EpisodeMeta).AsString();
+        return CurrentSeason?.Episodes.FirstOrDefault(e => e.Id == id);
+    }
+
+    private void ToggleEpisodeWatched(MediaItem e)
+    {
+        var lib = Host.Library;
+        var watched = !lib.IsWatched(e);
+        lib.SetWatched(e, watched);
+        var name = RecapPage.Code(e) ?? e.Title;
+        App.Toast(watched ? $"Marked {name} watched" : $"Marked {name} unwatched");
+        var id = e.Id;
+        Rebuild();
+        // Stay on the same episode after the rebuild.
+        if (_episodes?.GetChildren().OfType<Control>().FirstOrDefault(r => r.HasMeta(EpisodeMeta) && r.GetMeta(EpisodeMeta).AsString() == id) is { } row)
+        {
+            row.CallDeferred(Control.MethodName.GrabFocus);
+        }
+        App.UpdateChrome();
     }
 
     private void ToggleSeasonWatched()
@@ -958,6 +993,10 @@ public partial class DetailPage : Screen
         if (action == Pad.Secondary && _item.Playable)
         {
             ToggleWatched();
+        }
+        else if (action == Pad.Secondary && HasSeasons && FocusedEpisode() is { Playable: true } ep)
+        {
+            ToggleEpisodeWatched(ep);
         }
         else if (action == Pad.Secondary && HasSeasons)
         {

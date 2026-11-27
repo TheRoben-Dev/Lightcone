@@ -191,6 +191,8 @@ public partial class Main : Control
                 Host.Trivia.Prefetch([item], soon: true);
             }
         };
+        // Some hints depend on what has focus (an episode row offers "Episode watched").
+        GetViewport().GuiFocusChanged += _ => CallDeferred(MethodName.UpdateChrome);
         GetViewport().GuiFocusChanged += _ =>
         {
             if (Time.GetTicksMsec() - _navAtMs < 250)

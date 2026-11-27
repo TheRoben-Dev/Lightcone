@@ -12,6 +12,13 @@ the in-app "What's new" page.
 - Downloads: a progress indicator in the header (in the sidebar on the desktop), a message when a download starts, finishes or fails, and a live percentage on the Download button. When the server doesn't allow downloads, it now says so ("Downloads are turned off on this server") instead of just failing.
 - Fits the screen better: grids fill the full width, the last row clears the hint bar, a page's buttons wrap onto a second line instead of running off the screen, and descriptions wrap properly.
 - Smooth scrolling: rows and lists glide along with the selector, keeping the next item in view, and the first and last cards in a row are never cut off at the edge.
+- Rows fade out softly at the screen edge instead of being cut off, and pages fade at the top and bottom (against the header and hint bar) while there's more to scroll to.
+- The selector glides between cards on Home and in the grids, the same way it does in Settings, as an outline around the poster.
+- Mark single episodes: Y on an episode in a show's list marks just that episode watched or unwatched, and it syncs to your server. The season button still marks the whole season.
+- External controllers: fixed every button counting twice (two steps on the D-pad, two tabs on LB / RB, A pausing and unpausing) when Steam shows one controller to the app as two.
+- Did you know? only shows a fact that makes sense on its own, and hides the box otherwise.
+- On the desktop, the button hints at the bottom can be clicked.
+- Mouse tooltips no longer pop up over cards in the controller layout.
 - Settings → Layout shows the resolution Lightcone is drawing at (and, on a Steam Deck given a 16:9 resolution by Steam, how to set it to Native).
 
 ## 0.9.0

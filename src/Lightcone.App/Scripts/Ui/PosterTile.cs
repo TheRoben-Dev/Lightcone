@@ -17,6 +17,12 @@ public enum TileShape
 /// </summary>
 public partial class PosterTile : Button
 {
+    /// <summary>
+    /// Tooltips are for the desktop. In the controller layout the hidden mouse can still rest on a
+    /// card (after a touch), which would pop its title up over the art.
+    /// </summary>
+    public override string _GetTooltip(Vector2 atPosition) => UiLayout.Desktop ? TooltipText : "";
+
     public MediaItem Item { get; }
 
     public static Vector2 SizeFor(TileShape shape, bool desktop) => (shape, desktop) switch
@@ -48,8 +54,7 @@ public partial class PosterTile : Button
         FocusMode = FocusModeEnum.All;
         TooltipText = item.Title + (item.Subtitle != null ? "\n" + item.Subtitle : "");
         SetMeta(NoHelp, true);
-        // The art draws its own focus ring; the shared ring would also frame the caption.
-        SetMeta(FocusHighlight.OwnFocus, true);
+        // The shared ring glides from card to card, framing just the artwork (set below).
         foreach (var state in new[] { "normal", "hover", "pressed", "hover_pressed", "focus", "disabled" })
         {
             AddThemeStyleboxOverride(state, new StyleBoxEmpty());
@@ -66,6 +71,7 @@ public partial class PosterTile : Button
             _art.OnWatchlist = item.Kind is MediaKind.Movie or MediaKind.Show && lib.OnWatchlist(item);
         }
         col.AddChild(_art);
+        SetMeta(FocusHighlight.FrameChild, _art);
         _title = UiTheme.Label(item.Title, desktop ? UiTheme.SmallSize + 1 : UiTheme.SmallSize + 3, UiTheme.Text);
         _title.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
         _title.CustomMinimumSize = new Vector2(size.X, 0);
@@ -120,7 +126,6 @@ public partial class PosterTile : Button
 
     private void SetFocused(bool on)
     {
-        _art.Focused = on;
         _title.AddThemeColorOverride("font_color", on || _selected ? UiTheme.AccentText : UiTheme.Text);
     }
 
