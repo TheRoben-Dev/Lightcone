@@ -159,6 +159,11 @@ public partial class TrackPickerPage : Screen
         Add(Toggle.Create("Clear voices", Host.Settings.ClearVoices, svc.SetClearVoices,
             "Lifts dialogue over music and effects (with surround, the centre channel). Stays on until you turn it off.",
             "Dialogue is boosted.", "The soundtrack plays as mixed."));
+        var gain = new Stepper("Media volume", AudioFilters.GainSteps.Select(g => (g.ToString(CultureInfo.InvariantCulture), AudioFilters.GainLabel(g))),
+            AudioFilters.SnapGain(Host.Settings.MediaGainDb).ToString(CultureInfo.InvariantCulture),
+            "How loud everything plays in Lightcone, before your TV. Above 0 dB a limiter keeps loud scenes clean. Same as Settings → Sound & feel.") { Wrap = false };
+        gain.Changed += v => svc.SetMediaGain(int.Parse(v, CultureInfo.InvariantCulture));
+        Add(gain);
         if (svc.Chapters.Count > 1)
         {
             page.AddChild(Section("Chapters"));

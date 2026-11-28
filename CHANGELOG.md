@@ -3,6 +3,13 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.11.2
+
+- Menu sounds no longer blare after a movie: they were mixed about 15 dB louder than a film's dialogue, so turning the TV up for a movie made the menus painfully loud. They now sit well under the dialogue at every setting (Full included), the default is Medium, and they drop another 12 dB while a video or music is playing.
+- Media volume in Settings → Sound & feel (and in the player's options): play movies, shows and music up to 12 dB louder, so you don't have to crank the TV, with a limiter so loud scenes don't distort. Or turn it down.
+- Speakers setting: pick Stereo if voices are faint. Some TVs claim surround over HDMI but only play the front left and right speakers, which loses the centre channel where the dialogue is. 5.1 and 7.1 are there for sound bars and receivers.
+- The log (Settings → About → Log) now says what the soundtrack has and what goes to your speakers ("audio: track 5.1(side) -> out stereo"), to track down quiet audio.
+
 ## 0.11.1
 
 - Find subtitles works with Plex: picking a subtitle now waits for your server to finish fetching it from OpenSubtitles (it does that in the background) and then loads exactly that one. Before, Lightcone asked straight away, so it either found nothing ("Couldn't get that subtitle") or loaded an older subtitle file.
@@ -21,6 +28,8 @@ the in-app "What's new" page.
 - Watchlist page: See all at the end of Home's Watchlist row opens it. Filter by movies, shows, on your server or not, Y changes the order (date added, title, release year), and X takes the selected title off.
 - Watchlist sync: changes made in other Plex apps show up within 5 minutes, or as soon as you come back to Home. Anything you added in Lightcone while plex.tv couldn't be reached is sent once it can, and titles you removed elsewhere stay removed.
 - Smooth on NVIDIA: on Linux PCs with an NVIDIA card the whole app (menus and movies) could run at around 10 fps. Lightcone now switches itself to desktop OpenGL on NVIDIA (it restarts once on first launch to do it), and the log names the GPU in use.
+- Controllers can come and go safely: when a controller turns itself off (Bluetooth idle timeout), is unplugged or the Deck is docked, Lightcone forgets it straight away: no stuck buttons or runaway scrolling, and rumble is never sent to a controller that's gone (or to the next one that happens to get its slot).
+- Better crash reports: if Lightcone ever closes unexpectedly, the next start notes it in the log (Settings → About → Log) and copies the crash details from the engine's own log, so one file says what happened.
 
 ## 0.10.0
 

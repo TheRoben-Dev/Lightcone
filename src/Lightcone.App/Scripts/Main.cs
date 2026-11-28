@@ -215,6 +215,7 @@ public partial class Main : Control
             _content.AddChild(msg);
             return;
         }
+        CrashReport.CheckPrevious(Host!.PidFile, Host.Paths.LogsDir);
         WritePidFile();
         Host!.Library.Changed += () => Callable.From(RefreshLibraryScreens).CallDeferred();
         // Plex servers show what was saved at once; this brings them up to date in the background.
@@ -705,6 +706,7 @@ public partial class Main : Control
     /// <summary>Releases Godot objects that C# statics keep alive, while .NET is still running.</summary>
     public override void _ExitTree()
     {
+        AppLog.Info("quit");
         IdleInhibit.Release();
         try
         {

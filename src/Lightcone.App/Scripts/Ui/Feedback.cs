@@ -32,8 +32,30 @@ public partial class Feedback : Node
     private int _next;
     private ulong _lastMoveMs;
 
-    /// <summary>0 (off) to 100.</summary>
+    /// <summary>0 (off) to 100, see <see cref="LevelDb"/>.</summary>
     public int Volume { get; set; } = 50;
+
+    /// <summary>
+    /// Menu sound level in dB for a <see cref="Volume"/>: Full is -12 dB and every quarter of the
+    /// scale is 6 dB, so Medium (-24 dB) sits under a film's dialogue rather than over it. Films are
+    /// mixed with dialogue around -27 dBFS and 20 dB of headroom; full-scale blips were 15 dB hotter
+    /// than the movie, so turning the TV up for a film made the menus blare.
+    /// </summary>
+    public static float LevelDb(int volume) => -36f + 24f * Math.Clamp(volume, 0, 100) / 100f;
+
+    /// <summary>Extra cut while a video or music plays (the player's own menus, the mini player).</summary>
+    public const float DuckDb = -12f;
+
+    /// <summary>The volume_db for a sound at <paramref name="gain"/> right now: level, gain and ducking.</summary>
+    private float VolumeDbFor(float gain)
+    {
+        var db = LevelDb(Volume) + Mathf.LinearToDb(gain);
+        if (Playback.PlayerService.Instance is { Active: true, Paused: false })
+        {
+            db += DuckDb;
+        }
+        return db;
+    }
 
     public bool Haptics { get; set; } = true;
 
@@ -76,13 +98,13 @@ public partial class Feedback : Node
             var p = _players[_next];
             _next = (_next + 1) % _players.Count;
             p.Stream = _sounds[cue];
-            p.VolumeDb = Mathf.LinearToDb(Volume / 100f * Gain(cue));
+            p.VolumeDb = VolumeDbFor(Gain(cue));
             p.Play();
         }
         if (Haptics && Pad.LastDevice is { } device && Pad.LastFamily != PadFamily.Keyboard)
         {
             var (weak, strong, seconds) = Rumble(cue);
-            Input.StartJoyVibration(device, weak, strong, seconds);
+            Pad.Rumble(device, weak, strong, seconds);
         }
     }
 

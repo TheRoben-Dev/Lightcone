@@ -38,7 +38,7 @@ public partial class Feedback
                 AddChild(_projectorPlayer);
             }
             _projectorPlayer.Stream = _projector;
-            _projectorPlayer.VolumeDb = Mathf.LinearToDb(Volume / 100f * 0.8f);
+            _projectorPlayer.VolumeDb = LevelDb(Volume) + Mathf.LinearToDb(0.8f);
             _projectorPlayer.Play();
         }
         if (Haptics && Pad.LastDevice is { } device && Pad.LastFamily != PadFamily.Keyboard)
@@ -47,7 +47,7 @@ public partial class Feedback
             foreach (var (at, weak, strong, secs) in new[] { (0.35, 0.35f, 0f, 0.04f), (0.46, 0f, 0.55f, 0.06f), (0.62, 0.12f, 0f, 0.5f), (1.1, 0f, 0.4f, 0.08f) })
             {
                 var timer = GetTree().CreateTimer(at);
-                timer.Timeout += () => Input.StartJoyVibration(device, weak, strong, secs);
+                timer.Timeout += () => Pad.Rumble(device, weak, strong, secs);
                 _pulses.Add(timer);
             }
         }

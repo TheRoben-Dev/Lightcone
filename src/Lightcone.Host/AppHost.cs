@@ -33,8 +33,15 @@ public sealed record AppSettings
     /// <summary>The theme's slow animated background behind the menus.</summary>
     public bool AnimatedBackground { get; init; } = true;
 
-    /// <summary>Menu sounds, 0 (off) to 100.</summary>
-    public int SoundVolume { get; init; } = 40;
+    /// <summary>Menu sounds, 0 (off) to 100. Mapped to -36..-12 dB (Feedback.LevelDb), so even Full sits
+    /// well under a movie's dialogue.</summary>
+    public int SoundVolume { get; init; } = 50;
+
+    /// <summary>Media volume: gain for movies, shows and music in dB (0 = as mixed, above 0 has a limiter).</summary>
+    public int MediaGainDb { get; init; }
+
+    /// <summary>Speaker layout mpv mixes to: "auto", "stereo", "5.1" or "7.1".</summary>
+    public string Speakers { get; init; } = "auto";
 
     /// <summary>A light rumble on the pad for menu moves, presses and errors.</summary>
     public bool Haptics { get; init; } = true;

@@ -38,6 +38,26 @@ public partial class SmokeTest : Node
             TwinTap(JoyButton.DpadLeft, interleaved: false);
             TwinTap(JoyButton.DpadRight, interleaved: true);
         }, expect: "Afterglow", tab: "Home");
+        // A controller that powers off (Bluetooth idle timeout) or is unplugged while its stick is
+        // pushed: it's forgotten at once, nothing keeps repeating, and rumble aimed at it is dropped.
+        Step("home-pad-power-off", () =>
+        {
+            Input.ParseInputEvent(new InputEventJoypadMotion { Device = 3, Axis = JoyAxis.LeftX, AxisValue = 1f });
+            Input.FlushBufferedEvents();
+            Input.Singleton.EmitSignal(Input.SignalName.JoyConnectionChanged, 3, false);
+            Pad.Rumble(3, 0.5f, 0.5f, 0.1f);
+            Feedback.Play(Cue.Confirm);
+            if (Pad.LastDevice == 3)
+            {
+                throw new InvalidOperationException("pad 3 still the rumble target after it disconnected");
+            }
+        }, wait: 1.0, expect: "Afterglow", tab: "Home");
+        Step("home-pad-reconnect", () =>
+        {
+            Input.Singleton.EmitSignal(Input.SignalName.JoyConnectionChanged, 3, true);
+            Tap(JoyButton.DpadLeft);
+            Tap(JoyButton.DpadRight);
+        }, expect: "Afterglow", tab: "Home");
         // Back up to the hero: the page scrolls all the way to the top again.
         Step("home-down-more", () => Tap(JoyButton.DpadDown, 2), wait: 0.8, tab: "Home");
         Step("home-up-top", () => Tap(JoyButton.DpadUp, 3), wait: 0.9, expect: "Play", tab: "Home");
@@ -107,6 +127,11 @@ public partial class SmokeTest : Node
             Tap(JoyButton.DpadDown);
             Tap(JoyButton.DpadRight);
         }, wait: 1.0, expect: "Lifts dialogue");
+        Step("player-options-media-volume", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "How loud everything plays");
         Step("player-tracks-back", () => Tap(JoyButton.B), wait: 1.0);
         // B stops video and goes back (position saving and Resume are covered by the unit tests:
         // the sample streams play in real time, and resume starts after 30 s).
@@ -282,7 +307,7 @@ public partial class SmokeTest : Node
         Step("settings-remote", () => Press("ui_down"), expect: "Phone remote");
         Step("settings-appearance", () => Press("ui_down"), expect: "Appearance");
         Step("settings-sound", () => Press("ui_down"), expect: "Sound & feel");
-        Step("sound-pane", () => Press(Pad.Accept), expect: "Left alone on the menus");
+        Step("sound-pane", () => Press(Pad.Accept), expect: "How loud movies, shows and music play");
         Step("sound-back", () => Press(Pad.Back), expect: "Sound & feel");
         // Music is optional: off takes the tab away (and music out of Home and search).
         Step("settings-library", () => FindFocusable(GetTree().Root, "Music, collections")?.GrabFocus(), expect: "Library");

@@ -113,6 +113,20 @@ public class ShowcaseFeatureTests : IDisposable
     }
 
     [Fact]
+    public void MediaVolumeBoostsWithALimiterAndCutsWithout()
+    {
+        var up = AudioFilters.Build(false, false, 6, 6);
+        Assert.Equal("lavfi=[volume=6dB,alimiter=limit=0.9:level=disabled]", up);
+        Assert.Equal("lavfi=[volume=-6dB]", AudioFilters.Build(false, false, 2, -6));
+        var night = AudioFilters.Build(true, false, 2, 3);
+        Assert.True(night.IndexOf("acompressor", StringComparison.Ordinal) < night.IndexOf("volume=3dB", StringComparison.Ordinal));
+        Assert.Equal(6, AudioFilters.SnapGain(7));
+        Assert.Equal(-12, AudioFilters.SnapGain(-40));
+        Assert.Equal("0 dB, as mixed", AudioFilters.GainLabel(0));
+        Assert.Equal("+9 dB", AudioFilters.GainLabel(9));
+    }
+
+    [Fact]
     public void SmartResumeBacksUpMoreAfterLongerBreaks()
     {
         Assert.Equal(5, ResumePolicy.Rewind(null));

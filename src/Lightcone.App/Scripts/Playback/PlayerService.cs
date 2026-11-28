@@ -281,7 +281,8 @@ public partial class PlayerService : Node
     public void ApplyAudioFilters()
     {
         var s = Host.Settings;
-        var af = HasVideo || Current?.Kind is MediaKind.Movie or MediaKind.Episode ? AudioFilters.Build(s.NightMode, s.ClearVoices, AudioChannels) : "";
+        var video = HasVideo || Current?.Kind is MediaKind.Movie or MediaKind.Episode;
+        var af = AudioFilters.Build(video && s.NightMode, video && s.ClearVoices, AudioChannels, s.MediaGainDb);
         if (af == _af || _mpv == null)
         {
             return;
@@ -289,6 +290,50 @@ public partial class PlayerService : Node
         _af = af;
         AppLog.Info($"audio filters: {(af.Length == 0 ? "none" : af)}");
         Guard(() => _mpv.SetString("af", af));
+    }
+
+    /// <summary>Saves Media volume (dB) and applies it to what's playing.</summary>
+    public void SetMediaGain(int db)
+    {
+        Host.SaveSettings(Host.Settings with { MediaGainDb = AudioFilters.SnapGain(db) });
+        ApplyAudioFilters();
+        Changed?.Invoke();
+    }
+
+    /// <summary>mpv's audio-channels for a Speakers setting.</summary>
+    public static string ChannelsFor(string speakers) => speakers switch
+    {
+        "stereo" => "stereo",
+        "5.1" => "5.1,stereo",
+        "7.1" => "7.1,5.1,stereo",
+        _ => "auto-safe",
+    };
+
+    /// <summary>Saves Speakers and tells mpv (it reopens the audio output).</summary>
+    public void SetSpeakers(string speakers)
+    {
+        Host.SaveSettings(Host.Settings with { Speakers = speakers });
+        Guard(() => _mpv?.SetString("audio-channels", ChannelsFor(speakers)));
+        _audioOutLogged = "";
+        Changed?.Invoke();
+    }
+
+    private string _audioOutLogged = "";
+
+    /// <summary>Logs the track's channels against what goes to the speakers, once per change.</summary>
+    private void LogAudioOut()
+    {
+        if (_mpv == null)
+        {
+            return;
+        }
+        var line = $"audio: track {_mpv.GetString("audio-params/hr-channels") ?? "?"} -> out {_mpv.GetString("audio-out-params/hr-channels") ?? "?"}"
+            + $" via {_mpv.GetString("current-ao") ?? "?"} ({_mpv.GetString("audio-device") ?? "?"}), media volume {Host.Settings.MediaGainDb} dB";
+        if (line != _audioOutLogged && _mpv.GetString("audio-out-params/hr-channels") is { Length: > 0 })
+        {
+            _audioOutLogged = line;
+            AppLog.Info(line);
+        }
     }
 
     /// <summary>Volume up or down by <paramref name="step"/> percent (phone remote), up to 150.</summary>
@@ -507,6 +552,7 @@ public partial class PlayerService : Node
             ["gapless-audio"] = "weak",
             ["prefetch-playlist"] = "yes",
             ["volume-max"] = "150",
+            ["audio-channels"] = ChannelsFor(s.Speakers),
             ["msg-level"] = "all=warn",
         };
         // Only the size here: the rest of the subtitle look is set after start-up, one option at a
@@ -535,7 +581,7 @@ public partial class PlayerService : Node
         {
             GlProc.Detect();
             _mpv = new MpvPlayer(Options());
-            foreach (var p in new[] { "pause", "track-list", "duration", "hwdec-current", "aid", "sid", "chapter-list" })
+            foreach (var p in new[] { "pause", "track-list", "duration", "hwdec-current", "aid", "sid", "chapter-list", "audio-out-params" })
             {
                 _mpv.Observe(p);
             }
@@ -891,6 +937,9 @@ public partial class PlayerService : Node
                 case MpvEventId.PropertyChange when e.Property == "chapter-list" && Current != null:
                     Chapters = Chapter.ParseList(_mpv.GetString("chapter-list"));
                     Changed?.Invoke();
+                    break;
+                case MpvEventId.PropertyChange when e.Property == "audio-out-params":
+                    LogAudioOut();
                     break;
                 case MpvEventId.PropertyChange when e.Property == "hwdec-current":
                     HwdecCurrent = _mpv.GetString("hwdec-current") ?? "";
