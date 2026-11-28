@@ -69,7 +69,7 @@ public partial class SettingsScreen : TwoPaneScreen
             "Albums and tracks from your sources get a Music tab.",
             "No Music tab, and music stays out of Home and search. Your music isn't removed."));
         Add(Toggle.Create("Automatic collections", Host.Settings.AutoCollections, on => Host.SaveSettings(Host.Settings with { AutoCollections = on }),
-            "Groups movies and shows by genre and decade, next to your own and your servers' collections.",
+            "Makes franchise, director, genre and decade collections, next to your own and your servers' collections.",
             "Movies and Shows list collections like \"Sci-Fi movies\" and \"1990s movies\".",
             "Only collections you made and your servers' collections."));
         Add(Toggle.Create("Spoiler-free", Host.Settings.HideSpoilers, on => Host.SaveSettings(Host.Settings with { HideSpoilers = on }),

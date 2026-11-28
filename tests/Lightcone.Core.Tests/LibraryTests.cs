@@ -27,7 +27,7 @@ public class LibraryTests : IDisposable
     {
         var lib = Demo();
         var movies = lib.Section(MediaKind.Movie);
-        Assert.Equal(10, movies.Count);
+        Assert.Equal(12, movies.Count);
         Assert.Equal("A Field of Lanterns", movies[0].Title);  // "A " is ignored when sorting: Field
         Assert.True(string.Compare(MediaLibrary.SortTitle(movies[1].Title), MediaLibrary.SortTitle(movies[2].Title), StringComparison.CurrentCultureIgnoreCase) <= 0);
         var newest = lib.Section(MediaKind.Movie, SortKey.Year, descending: true);

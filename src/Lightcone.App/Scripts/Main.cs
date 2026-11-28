@@ -825,9 +825,21 @@ public partial class Main : Control
         ShowAmbient();
     }
 
+    private double _watchlistClock;
+
     public override void _Process(double delta)
     {
         CheckIdle(delta);
+        // The Plex watchlist follows changes made in other Plex apps: every 5 minutes (not mid-film).
+        _watchlistClock += delta;
+        if (_watchlistClock > 60)
+        {
+            _watchlistClock = 0;
+            if (Host != null && !_player.Active)
+            {
+                Host.Plex.SyncWatchlistIfStale(TimeSpan.FromMinutes(5));
+            }
+        }
         if (_toast.Visible || _stack.Count == 0 || _stack[^1] is not PlayerScreen)
         {
             _player.Paced = false;  // anything else on screen runs at the display's rate

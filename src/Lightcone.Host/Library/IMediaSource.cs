@@ -51,6 +51,9 @@ public interface IMediaSource
     {
     }
 
+    /// <summary>The server's collections with their own art, summary and order (titles also name them in <see cref="MediaItem.Collections"/>).</summary>
+    IReadOnlyList<ServerCollection> ServerCollections => [];
+
     /// <summary>Called when an item starts playing: fetch what only matters then (intro / credits markers).</summary>
     Task PrepareAsync(MediaItem item, CancellationToken ct = default) => Task.CompletedTask;
 

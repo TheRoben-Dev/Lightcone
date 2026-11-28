@@ -35,7 +35,11 @@ public sealed class DemoSource : IMediaSource
             ("Northern Static", 2018, 101, "Documentary", "Life at the radio station closest to the pole."),
             ("Midnight Matinee", 2026, 89, "Horror", "The late show at the Rialto never seems to end."),
             ("A Field of Lanterns", 2017, 108, "Family", "A grandmother and a grandson build three hundred lanterns for the festival."),
+            ("Glass Orbit II", 2026, 126, "Sci-Fi", "The crew is back, the station is worse, and the spare part was the wrong one."),
+            ("Paper Tigers: Fold Harder", 2025, 91, "Comedy", "The origami shop goes national, and so do its rivals."),
         };
+        // Who directed what (an automatic "Directed by" collection needs three films).
+        string[] directors = ["Ada Lindqvist", "Tomas Reyes", "Noor Haddad", "Ada Lindqvist", "Noor Haddad", "Tomas Reyes", "Ada Lindqvist", "Ines Moreau", "Tomas Reyes", "Ines Moreau", "Noor Haddad", "Tomas Reyes"];
         for (var i = 0; i < movies.Length; i++)
         {
             var m = movies[i];
@@ -48,6 +52,7 @@ public sealed class DemoSource : IMediaSource
                 Subtitle = $"{m.Year} · {m.Genre}",
                 Genres = [m.Genre],
                 Collections = i is 1 or 6 or 8 ? ["After Dark Collection"] : [],
+                Directors = [directors[i % directors.Length]],
                 Overview = m.Overview,
                 Duration = m.Minutes * 60,
                 Added = t0.AddDays(-i * 3),

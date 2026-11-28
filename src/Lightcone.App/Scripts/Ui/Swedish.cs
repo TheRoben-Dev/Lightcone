@@ -283,8 +283,22 @@ internal static class Swedish
         ["Albums and tracks from your sources get a Music tab."] = "Album och låtar från dina källor får en Musik-flik.",
         ["No Music tab, and music stays out of Home and search. Your music isn't removed."] = "Ingen Musik-flik, och musik visas inte på Hem eller i sök. Din musik tas inte bort.",
         ["Automatic collections"] = "Automatiska samlingar",
-        ["Groups movies and shows by genre and decade, next to your own and your servers' collections."] =
-            "Grupperar filmer och serier efter genre och årtionde, bredvid dina egna och dina servrars samlingar.",
+        ["Makes franchise, director, genre and decade collections, next to your own and your servers' collections."] =
+            "Gör samlingar per filmserie, regissör, genre och årtionde, bredvid dina egna och dina servrars samlingar.",
+        // 0.11: collection shelves and the watchlist page
+        ["Your collections"] = "Dina samlingar",
+        ["From your servers"] = "Från dina servrar",
+        ["Franchises"] = "Filmserier",
+        ["Directors"] = "Regissörer",
+        ["Genres"] = "Genrer",
+        ["Decades"] = "Årtionden",
+        ["See all  ›"] = "Visa alla  ›",
+        ["Not on server"] = "Inte på servern",
+        ["Not on your server"] = "Inte på din server",
+        ["On your server"] = "På din server",
+        ["All"] = "Alla",
+        ["Release year"] = "Utgivningsår",
+        ["Nothing here with this filter."] = "Inget här med det här filtret.",
         ["Only collections you made and your servers' collections."] = "Bara samlingar du gjort och dina servrars samlingar.",
         ["Spoiler-free"] = "Spoilerfritt",
         ["Hides thumbnails and summaries of episodes you haven't watched yet, so a still or a synopsis doesn't give the plot away."] =

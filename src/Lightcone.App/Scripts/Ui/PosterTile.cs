@@ -65,7 +65,12 @@ public partial class PosterTile : Button
         AddChild(col);
         // The caption below names the item, so placeholder art shows only its kind.
         _art = new PosterArt(item, size, progress, showTitle: false);
-        if (Main.Instance?.Host?.Library is { } lib)
+        if (item.NotInLibrary)
+        {
+            _art.Badge = "Not on server";
+            _art.OnWatchlist = true;
+        }
+        else if (Main.Instance?.Host?.Library is { } lib && item.Id != MediaRow.SeeAllId)
         {
             _art.Badge = BadgeFor(lib, item);
             _art.OnWatchlist = item.Kind is MediaKind.Movie or MediaKind.Show && lib.OnWatchlist(item);

@@ -140,6 +140,13 @@ public class PlexTests : IDisposable
             f.Routes[$"GET {origin}/library/sections/2/all?type=2&includeGuids=0"] = Shows;
             f.Routes[$"GET {origin}/library/sections/2/all?type=4&includeGuids=0"] = Episodes;
             f.Routes[$"GET {origin}/library/metadata/212?includeMarkers=1"] = EpisodeMarkers;
+            f.Routes[$"GET {origin}/library/sections/1/collections"] = """
+                {"MediaContainer":{"Metadata":[
+                  {"ratingKey":"900","title":"Favorites","summary":"Roben's picks.","thumb":"/library/collections/900/composite/1","collectionSort":"1","childCount":2},
+                  {"ratingKey":"901","title":"Long ones","smart":"1","collectionSort":"0","childCount":1}]}}
+                """;
+            f.Routes[$"GET {origin}/library/sections/2/collections"] = """{"MediaContainer":{"size":0}}""";
+            f.Routes[$"GET {origin}/library/collections/901/children"] = """{"MediaContainer":{"Metadata":[{"ratingKey":"102","type":"movie","title":"Heat"}]}}""";
             f.Routes[$"GET {origin}/:/timeline"] = "{}";
             f.Routes[$"GET {origin}/:/scrobble"] = "{}";
             f.Routes[$"GET {origin}/:/unscrobble"] = "{}";
@@ -336,16 +343,28 @@ public class PlexTests : IDisposable
         lib.SetWatchlist(arrival, false);
         await plex.Watchlist.Flush();
         Assert.Equal(["Severance"], lib.Watchlist().Select(i => i.Title));
-        var puts = fake.Seen.Where(r => r.Method == HttpMethod.Put).Select(r => r.RequestUri!.PathAndQuery).ToList();
+        var puts = fake.Seen.Where(r => r.Method == HttpMethod.Put).Select(r => r.RequestUri!.PathAndQuery).Take(2).ToList();
         Assert.Equal(["/actions/addToWatchlist?ratingKey=5d9c086c46115600200aa2fe", "/actions/removeFromWatchlist?ratingKey=5d7768ba96b655001fdc0408"], puts);
         Assert.Equal("account-token", fake.Seen.First(r => r.Method == HttpMethod.Put).Headers.GetValues("X-Plex-Token").Single());
 
         // Plex's collections show up as Lightcone collections.
         var favorites = Assert.Single(lib.Collections(), c => c.Title == "Favorites");
         Assert.Equal(MediaKind.Collection, favorites.Kind);
-        Assert.Equal(["Heat", "Arrival"], lib.Children(favorites.Id).Select(i => i.Title));  // by year
+        Assert.Equal(["Arrival", "Heat"], lib.Children(favorites.Id).Select(i => i.Title));  // the server sorts it by title
         Assert.Equal("2 movies", favorites.Subtitle);
-        Assert.Equal(favorites, lib.Find(favorites.Id));
+        Assert.Equal("Roben's picks.", favorites.Overview);
+        Assert.Contains("/photo/:/transcode", favorites.PosterUrl);
+        var smart = Assert.Single(lib.Collections(), c => c.Title == "Long ones");  // smart: no tags on the titles
+        Assert.Equal(["Heat"], lib.Children(smart.Id).Select(i => i.Title));
+
+        // Titles on the Plex watchlist that no server has show up too (Dune), and can be taken off.
+        Assert.Equal(["Severance", "Dune"], lib.Watchlist(notInLibrary: true).Select(i => i.Title));
+        var dune = lib.Watchlist(notInLibrary: true)[1];
+        Assert.True(dune.NotInLibrary);
+        lib.SetWatchlist(dune, false);
+        await plex.Watchlist.Flush();
+        Assert.EndsWith("/actions/removeFromWatchlist?ratingKey=5d77683f6f4521001ea9dc53", fake.Seen.Last(r => r.Method == HttpMethod.Put).RequestUri!.PathAndQuery);
+        Assert.Equal(favorites.Id, lib.Find(favorites.Id)?.Id);
 
         // Next start, offline: the watchlist is what was saved.
         fake.Down.Add(PlexWatchlist.Discover);
@@ -357,5 +376,32 @@ public class PlexTests : IDisposable
         // Signing out forgets it.
         plex2.SignOut();
         Assert.False(plex2.Watchlist.Known);
+    }
+
+    [Fact]
+    public async Task SendsWatchlistTitlesAddedOnThisDeviceButKeepsRemovalsMadeElsewhere()
+    {
+        var fake = Fake();
+        var (lib, plex) = Make(fake);
+        await plex.SignInAsync("account-token");
+        await plex.UseServersAsync(await plex.ServersAsync());
+        // Heat was put on the watchlist on this device while plex.tv couldn't be reached.
+        fake.Down.Add(PlexWatchlist.Discover);
+        var heat = lib.Find("plex:srv1:102")!;
+        lib.SetWatchlist(heat, true);
+        await plex.Watchlist.Flush();
+        fake.Down.Remove(PlexWatchlist.Discover);
+
+        await plex.SyncWatchlistAsync();
+        await plex.Watchlist.Flush();
+        Assert.Contains("/actions/addToWatchlist?ratingKey=5d776826999c64001ec2c606", fake.Paths("/actions/"));
+        Assert.NotNull(plex.Watchlist.SyncedAt);
+
+        // Removed in another Plex app since: the next sync doesn't put it back.
+        var before = fake.Paths("/actions/").Count();
+        await plex.SyncWatchlistAsync();
+        await plex.Watchlist.Flush();
+        Assert.Equal(before, fake.Paths("/actions/").Count());
+        Assert.False(lib.OnWatchlist(heat));
     }
 }

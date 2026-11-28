@@ -3,6 +3,17 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.11.0
+
+- Collections as shelves: X in Movies or Shows (Collections on the desktop) now shows rows instead of one big grid: your collections, the ones from your Plex server, Franchises, Directors, Genres and Decades. Up and down move between rows, left and right along one.
+- Plex collections look like they do in Plex: their own poster and summary, the order you set on the server (release date, title or custom), and smart collections show up too.
+- New automatic collections: Franchises (John Wick, Toy Story, Mission: Impossible…, made from titles that are clearly one series, and skipped when your server already has that collection) and Directors (anyone with three or more films in your library). Settings → Library → Automatic collections turns them off along with genres and decades.
+- Collection pages show how far through it you are ("3 of 8 watched") and a Play next button for the first one you haven't seen.
+- A movie's page has an "In …" row with the rest of its franchise or collection, in release order.
+- The full Plex watchlist: titles on your Plex watchlist that your server doesn't have show up too, marked "Not on server", with their poster, year and summary. Open one to read about it or take it off your watchlist.
+- Watchlist page: See all at the end of Home's Watchlist row opens it. Filter by movies, shows, on your server or not, Y changes the order (date added, title, release year), and X takes the selected title off.
+- Watchlist sync: changes made in other Plex apps show up within 5 minutes, or as soon as you come back to Home. Anything you added in Lightcone while plex.tv couldn't be reached is sent once it can, and titles you removed elsewhere stay removed.
+
 ## 0.10.0
 
 - New Lightcone theme, now the default: a projector beam cuts through a dark auditorium, with dust drifting in the light, the beam slowly changing colour like the film it's showing, and velvet-red curtains at the edges. It stops during playback. Your current theme stays as it is; pick Lightcone in Settings → Appearance.

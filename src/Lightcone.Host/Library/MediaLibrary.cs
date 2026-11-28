@@ -70,7 +70,7 @@ public sealed partial class MediaLibrary
 
     private bool _auto = true;
 
-    /// <summary>Whether automatic collections (genres, decades) are made.</summary>
+    /// <summary>Whether automatic collections (franchises, directors, genres, decades) are made.</summary>
     public bool AutoCollections
     {
         get => _auto;
@@ -138,7 +138,9 @@ public sealed partial class MediaLibrary
     public IEnumerable<MediaItem> All => _sources.SelectMany(s => s.Items);
 
     public MediaItem? Find(string id) =>
-        IsCollection(id) ? Collections().FirstOrDefault(c => c.Id == id) : All.FirstOrDefault(i => i.Id == id);
+        IsCollection(id) ? Collections().FirstOrDefault(c => c.Id == id)
+        : id.StartsWith(WatchlistSourceId + ":", StringComparison.Ordinal) ? NotInLibrary().FirstOrDefault(i => i.Id == id)
+        : All.FirstOrDefault(i => i.Id == id);
 
     /// <summary>Top-level items of a section: movies, shows, albums (tracks and episodes live under their parent).</summary>
     public IReadOnlyList<MediaItem> Section(MediaKind kind, SortKey sort = SortKey.Title, bool descending = false, WatchFilter filter = WatchFilter.All) =>
@@ -517,7 +519,8 @@ public sealed partial class MediaLibrary
         {
             rows.Add(new HomeRow("continue", "Continue watching", resume, Wide: true));
         }
-        var watchlist = Watchlist().Take(perRow).ToList();
+        // Titles you can play first, then ones on the Plex watchlist that no server has.
+        var watchlist = Watchlist(notInLibrary: true).Take(perRow).ToList();
         if (watchlist.Count > 0)
         {
             rows.Add(new HomeRow("watchlist", "Watchlist", watchlist));
@@ -552,25 +555,93 @@ public sealed partial class MediaLibrary
 
     // ---- watchlist ----
 
+    /// <summary>The account watchlist synced with this device's (Plex's), when signed in.</summary>
+    public IOnlineWatchlist? OnlineWatchlist { get; set; }
+
+    public const string WatchlistSourceId = "watchlist";
+
     /// <summary>On the watchlist: the server's (when it keeps one) or this device's.</summary>
-    public bool OnWatchlist(MediaItem item) => SourceOf(item)?.ServerWatchlist(item) ?? Lists.OnWatchlist(item.Id);
+    public bool OnWatchlist(MediaItem item)
+    {
+        if (item.NotInLibrary)
+        {
+            return OnlineWatchlist is { Active: true } w && w.Entries.Any(e => e.Guid == item.Guid);
+        }
+        return SourceOf(item)?.ServerWatchlist(item)
+            ?? (item.Guid != null && OnlineWatchlist is { Active: true } online && online.Entries.Any(e => e.Guid == item.Guid) ? true : (bool?)null)
+            ?? Lists.OnWatchlist(item.Id);
+    }
 
     public void SetWatchlist(MediaItem item, bool on)
     {
+        if (item.NotInLibrary)
+        {
+            if (item.Guid is { } g)
+            {
+                OnlineWatchlist?.Set(g, on);
+            }
+            return;
+        }
         SourceOf(item)?.OnWatchlist(item, on);
         Lists.SetWatchlist(item.Id, on);  // raises Changed
     }
 
-    /// <summary>Movies and shows to watch, most recently added first; watched movies drop off.</summary>
-    public IReadOnlyList<MediaItem> Watchlist()
+    /// <summary>
+    /// Movies and shows to watch, most recently added first; watched movies drop off. With
+    /// <paramref name="notInLibrary"/>, also the online watchlist's titles no library has (last).
+    /// </summary>
+    public IReadOnlyList<MediaItem> Watchlist(bool notInLibrary = false)
     {
         var local = Lists.Watchlist();
         var order = local.Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i);
-        return All.Where(i => i.Kind is MediaKind.Movie or MediaKind.Show && Visible(i) && OnWatchlist(i))
+        // The online list's own order (newest first) wins for the titles it has.
+        var online = OnlineWatchlist is { Active: true } w ? w.Entries : [];
+        var onlineOrder = new Dictionary<string, int>();
+        for (var i = 0; i < online.Count; i++)
+        {
+            if (online[i].Guid is { Length: > 0 } g)
+            {
+                onlineOrder.TryAdd(g, i);
+            }
+        }
+        var inLibrary = All.Where(i => i.Kind is MediaKind.Movie or MediaKind.Show && Visible(i) && OnWatchlist(i))
             .Where(i => i.Kind != MediaKind.Movie || !IsWatched(i))
-            .OrderBy(i => order.TryGetValue(i.Id, out var n) ? n : int.MaxValue)
+            .DistinctBy(i => i.Guid ?? i.Id)
+            .OrderBy(i => i.Guid != null && onlineOrder.TryGetValue(i.Guid, out var n) ? n : online.Count + (order.TryGetValue(i.Id, out var m) ? m : local.Count))
             .ThenByDescending(i => i.Added)
             .ToList();
+        if (!notInLibrary)
+        {
+            return inLibrary;
+        }
+        return inLibrary.Concat(NotInLibrary()).ToList();
+    }
+
+    /// <summary>The online watchlist's titles that no library has, newest first.</summary>
+    public IReadOnlyList<MediaItem> NotInLibrary()
+    {
+        if (OnlineWatchlist is not { Active: true } w)
+        {
+            return [];
+        }
+        var have = All.Where(i => i.Guid != null && i.Kind is MediaKind.Movie or MediaKind.Show).Select(i => i.Guid!).ToHashSet();
+        return w.Entries.Where(e => e.Title.Length > 0 && e.Guid.Length > 0 && !have.Contains(e.Guid))
+            .Select(e => new MediaItem
+            {
+                Id = $"{WatchlistSourceId}:{e.Key}",
+                Title = e.Title,
+                Kind = e.Kind,
+                Year = e.Year,
+                Subtitle = e.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Overview = e.Summary,
+                Duration = e.Duration,
+                ContentRating = e.ContentRating,
+                PosterUrl = e.PosterUrl,
+                Guid = e.Guid,
+                SourceId = WatchlistSourceId,
+                SourceName = $"Your {w.Name} watchlist",
+                NotInLibrary = true,
+            }).ToList();
     }
 
     // ---- collections ----
@@ -592,7 +663,7 @@ public sealed partial class MediaLibrary
 
     /// <summary>
     /// Collections of movies and shows: made here first, then the servers' (Plex collections,
-    /// Jellyfin box sets), then automatic ones by genre and decade. Optionally only those holding
+    /// Jellyfin box sets), then automatic ones (franchises, directors, genres, decades). Optionally only those holding
     /// <paramref name="of"/> items.
     /// </summary>
     public IReadOnlyList<MediaItem> Collections(MediaKind? of = null)
@@ -613,14 +684,15 @@ public sealed partial class MediaLibrary
         var titles = All.Where(i => i.Kind is MediaKind.Movie or MediaKind.Show).ToList();
         var byId = titles.GroupBy(i => i.Id).ToDictionary(g => g.Key, g => g.First());
         var result = new List<(MediaItem, IReadOnlyList<MediaItem>)>();
-        void Add(string id, string name, IEnumerable<MediaItem> members, string from, string? overview = null, bool keepEmpty = false)
+        void Add(string id, string name, IEnumerable<MediaItem> members, string from, string? overview = null, bool keepEmpty = false,
+            bool keepOrder = false, string? posterUrl = null)
         {
             var list = members.DistinctBy(m => m.Id).ToList();
             if (list.Count == 0 && !keepEmpty)
             {
                 return;
             }
-            var ordered = id.StartsWith(UserPrefix, StringComparison.Ordinal)
+            var ordered = keepOrder || id.StartsWith(UserPrefix, StringComparison.Ordinal)
                 ? list
                 : list.OrderBy(m => m.Year ?? int.MaxValue).ThenBy(m => SortTitle(m.Title), StringComparer.CurrentCultureIgnoreCase).ToList();
             var art = ordered.FirstOrDefault(m => m.Poster != null || m.PosterUrl != null);
@@ -636,8 +708,8 @@ public sealed partial class MediaLibrary
                 Added = ordered.Count > 0 ? ordered.Max(m => m.Added) : DateTime.MinValue,
                 SourceId = CollectionSourceId,
                 SourceName = from,
-                Poster = art?.Poster,
-                PosterUrl = art?.PosterUrl,
+                Poster = posterUrl != null ? null : art?.Poster,
+                PosterUrl = posterUrl ?? art?.PosterUrl,
                 Genres = ordered.SelectMany(m => m.Genres).GroupBy(g => g).OrderByDescending(g => g.Count()).Take(3).Select(g => g.Key).ToList(),
             }, ordered));
         }
@@ -645,29 +717,204 @@ public sealed partial class MediaLibrary
         {
             Add(UserPrefix + c.Id, c.Name, c.Items.Select(i => byId.GetValueOrDefault(i)).OfType<MediaItem>(), "Lightcone", "A collection you made in Lightcone.", keepEmpty: true);
         }
-        foreach (var g in titles.SelectMany(t => t.Collections.Select(name => (name, t))).GroupBy(x => x.name, StringComparer.CurrentCultureIgnoreCase)
-                     .OrderBy(g => SortTitle(g.Key), StringComparer.CurrentCultureIgnoreCase))
+
+        // The servers': titles name the plain ones they're in; the server's own list adds its art,
+        // summary and order, and the titles of smart collections.
+        var meta = _sources.SelectMany(s => s.ServerCollections.Select(c => (Source: s, Meta: c))).ToList();
+        var tagged = titles.SelectMany(t => t.Collections.Select(name => (Name: name, Item: t))).ToList();
+        var names = tagged.Select(x => x.Name).Concat(meta.Where(m => m.Meta.Members is { Count: > 0 }).Select(m => m.Meta.Title))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(SortTitle, StringComparer.CurrentCultureIgnoreCase).ToList();
+        var serverSets = new List<HashSet<string>>();
+        foreach (var name in names)
         {
-            var sources = g.Select(x => x.t.SourceName).Distinct().ToList();
-            Add(ServerPrefix + Slug(g.Key), g.Key, g.Select(x => x.t), string.Join(", ", sources));
+            var info = meta.Where(m => string.Equals(m.Meta.Title, name, StringComparison.CurrentCultureIgnoreCase)).ToList();
+            var fromInfo = info.SelectMany(m => m.Meta.Members ?? []).Select(id => byId.GetValueOrDefault(id)).OfType<MediaItem>().ToList();
+            var fromTags = tagged.Where(x => string.Equals(x.Name, name, StringComparison.CurrentCultureIgnoreCase)).Select(x => x.Item).ToList();
+            var first = info.Select(m => m.Meta).FirstOrDefault();
+            IEnumerable<MediaItem> members = fromInfo.Concat(fromTags);
+            var keepOrder = false;
+            if (first?.Order == CollectionOrder.Custom && fromInfo.Count > 0)
+            {
+                keepOrder = true;  // the server's order, then any tagged title it didn't list
+            }
+            else if (first?.Order == CollectionOrder.Title)
+            {
+                members = members.OrderBy(m => SortTitle(m.Title), StringComparer.CurrentCultureIgnoreCase);
+                keepOrder = true;
+            }
+            var sources = fromTags.Select(t => t.SourceName).Concat(info.Select(m => m.Source.Name)).Distinct().ToList();
+            var list = members.ToList();
+            serverSets.Add(list.Select(m => m.Id).ToHashSet());
+            Add(ServerPrefix + Slug(name), name, list, string.Join(", ", sources), first?.Summary, keepOrder: keepOrder,
+                posterUrl: info.Select(m => m.Meta.PosterUrl).FirstOrDefault(p => p != null));
         }
-        // Automatic: genres and decades with enough in them to be worth browsing.
+
+        // Automatic: franchises, directors, genres and decades with enough in them to be worth browsing.
+        if (!_auto)
+        {
+            return result;
+        }
+        const string Auto = "Lightcone (automatic)";
+        var films = titles.Where(t => t.Kind == MediaKind.Movie).ToList();
+        foreach (var (name, members) in Franchises(films))
+        {
+            // Plex (with its automatic TMDB collections) usually has these already: don't repeat them.
+            var ids = members.Select(m => m.Id).ToHashSet();
+            if (serverSets.Any(set => ids.Count(set.Contains) is var n && (n == ids.Count || n >= 2 && n * 3 >= ids.Count * 2)))
+            {
+                continue;
+            }
+            Add($"{AutoPrefix}movies:franchise:{Slug(name)}", name, members, Auto, $"Every {name} film in your library, in release order.");
+        }
+        foreach (var g in films.SelectMany(t => t.Directors.Select(d => (Director: d, Item: t))).GroupBy(x => x.Director, StringComparer.CurrentCultureIgnoreCase)
+                     .Where(g => g.Count() >= 3).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.CurrentCultureIgnoreCase).Take(40))
+        {
+            Add($"{AutoPrefix}movies:director:{Slug(g.Key)}", $"Directed by {g.Key}", g.Select(x => x.Item), Auto, $"Films by {g.Key} in your library, in release order.");
+        }
         const int min = 4;
-        foreach (var kind in _auto ? new[] { MediaKind.Movie, MediaKind.Show } : [])
+        foreach (var kind in new[] { MediaKind.Movie, MediaKind.Show })
         {
             var what = kind == MediaKind.Movie ? "movies" : "shows";
             var ofKind = titles.Where(t => t.Kind == kind).ToList();
             foreach (var g in ofKind.SelectMany(t => t.Genres.Select(genre => (genre, t))).GroupBy(x => x.genre, StringComparer.CurrentCultureIgnoreCase)
                          .Where(g => g.Count() >= min).OrderByDescending(g => g.Count()))
             {
-                Add($"{AutoPrefix}{what}:genre:{Slug(g.Key)}", $"{g.Key} {what}", g.Select(x => x.t).OrderByDescending(t => t.Added), "Lightcone (automatic)");
+                Add($"{AutoPrefix}{what}:genre:{Slug(g.Key)}", $"{g.Key} {what}", g.Select(x => x.t).OrderByDescending(t => t.Added), Auto, keepOrder: true);
             }
             foreach (var g in ofKind.Where(t => t.Year is > 1800).GroupBy(t => t.Year!.Value / 10 * 10).Where(g => g.Count() >= min).OrderByDescending(g => g.Key))
             {
-                Add($"{AutoPrefix}{what}:decade:{g.Key}", $"{g.Key}s {what}", g, "Lightcone (automatic)");
+                Add($"{AutoPrefix}{what}:decade:{g.Key}", $"{g.Key}s {what}", g, Auto);
             }
         }
         return result;
+    }
+
+    // ---- franchises ----
+
+    private static readonly System.Text.RegularExpressions.Regex SequelTail = new(
+        @"(\s+(part|chapter|vol\.?|volume|episode)\s+([0-9]+|[ivx]+|one|two|three|four|five))$|(\s+([0-9]{1,2}|[ivx]{1,5}))$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// "John Wick: Chapter 2" → "john wick", "Toy Story 3" → "toy story", "Rocky II" → "rocky":
+    /// the part of a title its sequels share.
+    /// </summary>
+    internal static string FranchiseStem(string title)
+    {
+        var t = title.Trim();
+        foreach (var sep in new[] { ": ", " - ", " – ", " — " })
+        {
+            if (t.IndexOf(sep, StringComparison.Ordinal) is > 0 and var i)
+            {
+                t = t[..i];
+            }
+        }
+        for (var n = 0; n < 2; n++)
+        {
+            t = SequelTail.Replace(t, "").TrimEnd();
+        }
+        t = Fold(t).Trim();
+        return t.StartsWith("the ", StringComparison.Ordinal) ? t[4..] : t;
+    }
+
+    /// <summary>
+    /// Films that look like one series: two or more different titles sharing a stem ("Toy Story",
+    /// "Toy Story 2"). Named by the words their titles start with ("Mission: Impossible").
+    /// </summary>
+    internal static IEnumerable<(string Name, IReadOnlyList<MediaItem> Members)> Franchises(IEnumerable<MediaItem> films)
+    {
+        foreach (var g in films.GroupBy(f => FranchiseStem(f.Title)).Where(g => g.Key.Length >= 3))
+        {
+            var members = g.DistinctBy(f => f.Id).OrderBy(f => f.Year ?? int.MaxValue).ToList();
+            if (members.Select(f => Fold(f.Title)).Distinct().Count() < 2)
+            {
+                continue;  // remakes with the same title aren't a series
+            }
+            var name = CommonStart(members.Select(f => f.Title).ToList());
+            if (name.Length < 3)
+            {
+                continue;
+            }
+            yield return (name, members);
+        }
+    }
+
+    /// <summary>The words every title starts with, without trailing punctuation.</summary>
+    private static string CommonStart(IReadOnlyList<string> titles)
+    {
+        var split = titles.Select(t => t.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToList();
+        var words = new List<string>();
+        for (var i = 0; split.All(w => w.Length > i); i++)
+        {
+            var w = split[0][i];
+            if (!split.All(x => string.Equals(x[i].TrimEnd(':', '-', ',', '.'), w.TrimEnd(':', '-', ',', '.'), StringComparison.CurrentCultureIgnoreCase)))
+            {
+                break;
+            }
+            words.Add(w);
+        }
+        return string.Join(' ', words).TrimEnd(':', '-', ',', '.', ' ', '–', '—');
+    }
+
+    // ---- collection shelves ----
+
+    /// <summary>Which shelf a collection sits on in Movies / Shows: yours, server, franchise, director, genre, decade.</summary>
+    public static string ShelfOf(string collectionId)
+    {
+        if (collectionId.StartsWith(UserPrefix, StringComparison.Ordinal))
+        {
+            return "yours";
+        }
+        if (collectionId.StartsWith(ServerPrefix, StringComparison.Ordinal))
+        {
+            return "server";
+        }
+        var parts = collectionId.Split(':');
+        return parts.Length > 3 ? parts[3] : "other";
+    }
+
+    /// <summary>
+    /// The collections holding <paramref name="of"/> titles as rows, one per kind: yours, the
+    /// servers', franchises, directors, genres, decades (empty ones left out).
+    /// </summary>
+    public IReadOnlyList<HomeRow> CollectionShelves(MediaKind of)
+    {
+        var all = Collections(of);
+        var server = all.Where(c => ShelfOf(c.Id) == "server").ToList();
+        var servers = server.SelectMany(c => c.SourceName.Split(", ")).Distinct().ToList();
+        var shelves = new (string Id, string Title)[]
+        {
+            ("yours", "Your collections"),
+            ("server", servers.Count == 1 ? $"From {servers[0]}" : "From your servers"),
+            ("franchise", "Franchises"),
+            ("director", "Directors"),
+            ("genre", "Genres"),
+            ("decade", "Decades"),
+        };
+        var rows = new List<HomeRow>();
+        foreach (var (id, title) in shelves)
+        {
+            var items = all.Where(c => ShelfOf(c.Id) == id).ToList();
+            if (items.Count > 0)
+            {
+                rows.Add(new HomeRow("collections:" + id, title, items));
+            }
+        }
+        return rows;
+    }
+
+    /// <summary>Server collections and franchises a title is in (what its page shows as "In …").</summary>
+    public IReadOnlyList<MediaItem> SeriesWith(MediaItem item)
+    {
+        if (item.Kind is not (MediaKind.Movie or MediaKind.Show))
+        {
+            return [];
+        }
+        var all = _collections ??= BuildCollections();
+        return all.Where(c => ShelfOf(c.Item.Id) is "server" or "franchise" or "yours" && c.Members.Count > 1 && c.Members.Any(m => m.Id == item.Id))
+            .OrderBy(c => ShelfOf(c.Item.Id) switch { "franchise" => 0, "server" => 1, _ => 2 })
+            .ThenBy(c => c.Members.Count)
+            .Select(c => c.Item).ToList();
     }
 
     private static string Slug(string s) =>

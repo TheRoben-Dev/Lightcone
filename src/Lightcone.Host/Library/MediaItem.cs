@@ -73,6 +73,15 @@ public sealed record MediaItem
     /// <summary>Collections the server puts this item in ("The Lord of the Rings Collection").</summary>
     public IReadOnlyList<string> Collections { get; init; } = [];
 
+    /// <summary>Directors of a movie, when the source lists them (used for automatic collections).</summary>
+    public IReadOnlyList<string> Directors { get; init; } = [];
+
+    /// <summary>
+    /// On the online watchlist but not in any library (a Plex watchlist title your server doesn't
+    /// have): it can be looked at and taken off the watchlist, not played.
+    /// </summary>
+    public bool NotInLibrary { get; init; }
+
     /// <summary>Age rating ("PG-13", "TV-MA"), when the source knows it.</summary>
     public string? ContentRating { get; init; }
 
