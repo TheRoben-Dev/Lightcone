@@ -3,6 +3,13 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.11.2
+
+- Menu sounds no longer blare after a movie: they were mixed about 15 dB louder than a film's dialogue, so turning the TV up for a movie made the menus painfully loud. They now sit well under the dialogue at every setting (Full included), the default is Medium, and they drop another 12 dB while a video or music is playing.
+- Media volume in Settings → Sound & feel (and in the player's options): play movies, shows and music up to 12 dB louder, so you don't have to crank the TV, with a limiter so loud scenes don't distort. Or turn it down.
+- Speakers setting: pick Stereo if voices are faint. Some TVs claim surround over HDMI but only play the front left and right speakers, which loses the centre channel where the dialogue is. 5.1 and 7.1 are there for sound bars and receivers.
+- The log (Settings → About → Log) now says what the soundtrack has and what goes to your speakers ("audio: track 5.1(side) -> out stereo"), to track down quiet audio.
+
 ## 0.11.1
 
 - Find subtitles works with Plex: picking a subtitle now waits for your server to finish fetching it from OpenSubtitles (it does that in the background) and then loads exactly that one. Before, Lightcone asked straight away, so it either found nothing ("Couldn't get that subtitle") or loaded an older subtitle file.

@@ -38,7 +38,7 @@ public partial class Feedback
                 AddChild(_projectorPlayer);
             }
             _projectorPlayer.Stream = _projector;
-            _projectorPlayer.VolumeDb = Mathf.LinearToDb(Volume / 100f * 0.8f);
+            _projectorPlayer.VolumeDb = LevelDb(Volume) + Mathf.LinearToDb(0.8f);
             _projectorPlayer.Play();
         }
         if (Haptics && Pad.LastDevice is { } device && Pad.LastFamily != PadFamily.Keyboard)

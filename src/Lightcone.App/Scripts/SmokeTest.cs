@@ -302,7 +302,7 @@ public partial class SmokeTest : Node
         Step("settings-remote", () => Press("ui_down"), expect: "Phone remote");
         Step("settings-appearance", () => Press("ui_down"), expect: "Appearance");
         Step("settings-sound", () => Press("ui_down"), expect: "Sound & feel");
-        Step("sound-pane", () => Press(Pad.Accept), expect: "Left alone on the menus");
+        Step("sound-pane", () => Press(Pad.Accept), expect: "How loud movies, shows and music play");
         Step("sound-back", () => Press(Pad.Back), expect: "Sound & feel");
         // Music is optional: off takes the tab away (and music out of Home and search).
         Step("settings-library", () => FindFocusable(GetTree().Root, "Music, collections")?.GrabFocus(), expect: "Library");

@@ -5,6 +5,7 @@ using Lightcone.Host.Updates;
 using Lightcone.App.Ui;
 using Lightcone.Playback;
 using Godot;
+using System.Globalization;
 
 namespace Lightcone.App.Screens;
 
@@ -18,7 +19,7 @@ public partial class SettingsScreen : TwoPaneScreen
         ("Home", "Which rows Home shows, and in what order."),
         ("Phone remote", "Control Lightcone from a phone's browser on the same network."),
         ("Appearance", "Theme, accent colour, CRT effect and animations."),
-        ("Sound & feel", "Menu sounds and controller rumble."),
+        ("Sound & feel", "Media and menu volume, speakers and controller rumble."),
         ("Layout", "Controller or desktop layout, and keyboard shortcuts."),
         ("Updates", "Version, changelog and updates."),
         ("About", "Where Lightcone keeps its files, and the app log."),
@@ -437,17 +438,33 @@ public partial class SettingsScreen : TwoPaneScreen
 
     private void BuildFeedback(VBoxContainer col, Action<Control> Add)
     {
-        var ambient = new Stepper("Ambient mode", [("0", "Off"), ("2", "After 2 minutes"), ("5", "After 5 minutes"), ("10", "After 10 minutes"), ("20", "After 20 minutes")],
-            new[] { 0, 2, 5, 10, 20 }.OrderBy(x => Math.Abs(x - Host.Settings.AmbientMinutes)).First().ToString(),
-            "Left alone on the menus, the screen turns into a slow slideshow of your library with a clock. Any button wakes it.")
+        col.AddChild(Section("Volume"));
+        var gain = new Stepper("Media volume", AudioFilters.GainSteps.Select(g => (g.ToString(CultureInfo.InvariantCulture), AudioFilters.GainLabel(g))),
+            AudioFilters.SnapGain(Host.Settings.MediaGainDb).ToString(CultureInfo.InvariantCulture),
+            "How loud movies, shows and music play, before your TV or speakers. Films are mixed quieter than TV; raise this if you have to turn the TV up a lot.")
         {
             Expands = true,
             Wrap = false,
+            DetailFor = v => int.Parse(v, CultureInfo.InvariantCulture) switch
+            {
+                0 => "Plays at the level it was mixed.",
+                > 0 => "Louder, with a limiter so loud scenes don't distort.",
+                _ => "Quieter than the mix.",
+            },
         };
-        ambient.Changed += v => Host.SaveSettings(Host.Settings with { AmbientMinutes = int.Parse(v) });
-        Add(ambient);
-        Add(new ActionButton("Show ambient mode now", () => App.ShowAmbient(), "Try it: any button brings the menus back."));
-        col.AddChild(UiTheme.Label("Each theme has its own set of sounds. They never play over a video or music.",
+        gain.Changed += v => PlayerService.Instance.SetMediaGain(int.Parse(v, CultureInfo.InvariantCulture));
+        Add(gain);
+        var speakers = new Stepper("Speakers", [("auto", "Automatic"), ("stereo", "Stereo (TV speakers)"), ("5.1", "5.1 surround"), ("7.1", "7.1 surround")],
+            Host.Settings.Speakers,
+            "What surround soundtracks are mixed down to. Pick Stereo if voices are faint on TV speakers: some TVs report surround over HDMI but only play the front left and right, which drops the dialogue channel.")
+        {
+            Expands = true,
+            Wrap = false,
+            DetailFor = v => v == "auto" ? "Uses what the system's audio output says it has." : null,
+        };
+        speakers.Changed += v => PlayerService.Instance.SetSpeakers(v);
+        Add(speakers);
+        col.AddChild(UiTheme.Label("Each theme has its own set of sounds. They stay well under a movie's dialogue, and drop further while something plays.",
             UiTheme.SmallSize + 1, UiTheme.Dim, wrap: true));
         var levels = new List<(string, string)> { ("0", "Off"), ("25", "Quiet"), ("50", "Medium"), ("75", "Loud"), ("100", "Full") };
         var current = Host.Settings.SoundVolume;
@@ -477,6 +494,17 @@ public partial class SettingsScreen : TwoPaneScreen
         Add(Toggle.Create("Did you know?", Host.Settings.Trivia, on => Host.SaveSettings(Host.Settings with { Trivia = on }),
             "A behind-the-scenes fact on movie and show pages, from Wikipedia. Only the title and year are looked up.",
             "Facts from Wikipedia on detail pages.", "No trivia box."));
+        col.AddChild(Section("Screen"));
+        var ambient = new Stepper("Ambient mode", [("0", "Off"), ("2", "After 2 minutes"), ("5", "After 5 minutes"), ("10", "After 10 minutes"), ("20", "After 20 minutes")],
+            new[] { 0, 2, 5, 10, 20 }.OrderBy(x => Math.Abs(x - Host.Settings.AmbientMinutes)).First().ToString(),
+            "Left alone on the menus, the screen turns into a slow slideshow of your library with a clock. Any button wakes it.")
+        {
+            Expands = true,
+            Wrap = false,
+        };
+        ambient.Changed += v => Host.SaveSettings(Host.Settings with { AmbientMinutes = int.Parse(v) });
+        Add(ambient);
+        Add(new ActionButton("Show ambient mode now", () => App.ShowAmbient(), "Try it: any button brings the menus back."));
     }
 
     private void BuildAppearance(VBoxContainer col, Action<Control> Add)
