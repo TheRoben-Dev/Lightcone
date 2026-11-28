@@ -14,6 +14,8 @@ the in-app "What's new" page.
 - Watchlist page: See all at the end of Home's Watchlist row opens it. Filter by movies, shows, on your server or not, Y changes the order (date added, title, release year), and X takes the selected title off.
 - Watchlist sync: changes made in other Plex apps show up within 5 minutes, or as soon as you come back to Home. Anything you added in Lightcone while plex.tv couldn't be reached is sent once it can, and titles you removed elsewhere stay removed.
 - Smooth on NVIDIA: on Linux PCs with an NVIDIA card the whole app (menus and movies) could run at around 10 fps. Lightcone now switches itself to desktop OpenGL on NVIDIA (it restarts once on first launch to do it), and the log names the GPU in use.
+- Controllers can come and go safely: when a controller turns itself off (Bluetooth idle timeout), is unplugged or the Deck is docked, Lightcone forgets it straight away: no stuck buttons or runaway scrolling, and rumble is never sent to a controller that's gone (or to the next one that happens to get its slot).
+- Better crash reports: if Lightcone ever closes unexpectedly, the next start notes it in the log (Settings → About → Log) and copies the crash details from the engine's own log, so one file says what happened.
 
 ## 0.10.0
 

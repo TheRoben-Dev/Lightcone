@@ -82,7 +82,7 @@ public partial class Feedback : Node
         if (Haptics && Pad.LastDevice is { } device && Pad.LastFamily != PadFamily.Keyboard)
         {
             var (weak, strong, seconds) = Rumble(cue);
-            Input.StartJoyVibration(device, weak, strong, seconds);
+            Pad.Rumble(device, weak, strong, seconds);
         }
     }
 
