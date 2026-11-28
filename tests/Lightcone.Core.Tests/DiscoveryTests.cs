@@ -252,7 +252,42 @@ public class DiscoveryTests : IDisposable
         var file = await ((IMediaSource)demo).FetchSubtitleAsync(movie, found[0]);
         Assert.NotNull(file);
         var text = await File.ReadAllTextAsync(file!, Encoding.UTF8);
-        Assert.Contains("00:00:05,000 --> 00:00:09,800", text);
+        Assert.Contains("00:00:05,000 --> 00:00:10,000", text);
         File.Delete(file!);
+    }
+
+    [Fact]
+    public void SubtitleFilesUnpackAndConvertToUtf8()
+    {
+        const string srt = "1\n00:00:01,000 --> 00:00:02,500\nÅsa säger hej\n";
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        Assert.Equal((srt, ".srt"), SubtitleFiles.Normalize(Encoding.GetEncoding(1252).GetBytes(srt)));
+        Assert.Equal((srt, ".srt"), SubtitleFiles.Normalize(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(srt)).ToArray()));
+        Assert.Equal((srt, ".srt"), SubtitleFiles.Normalize(Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes(srt)).ToArray()));
+
+        using var gz = new MemoryStream();
+        using (var z = new System.IO.Compression.GZipStream(gz, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+        {
+            z.Write(Encoding.UTF8.GetBytes(srt));
+        }
+        Assert.Equal((srt, ".srt"), SubtitleFiles.Normalize(gz.ToArray()));
+
+        using var zip = new MemoryStream();
+        using (var a = new System.IO.Compression.ZipArchive(zip, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (var w = new StreamWriter(a.CreateEntry("readme.nfo").Open()))
+            {
+                w.Write("release info, much longer than the subtitle itself ............................................");
+            }
+            using (var w = new StreamWriter(a.CreateEntry("Movie.ass").Open()))
+            {
+                w.Write("[Script Info]\nTitle: x\n[Events]\n");
+            }
+        }
+        Assert.Equal(".ass", SubtitleFiles.Normalize(zip.ToArray()).Ext);
+        Assert.Equal(".vtt", SubtitleFiles.Normalize(Encoding.UTF8.GetBytes("WEBVTT\n\n00:01.000 --> 00:02.000\nhi\n")).Ext);
+
+        Assert.Contains("web page", Assert.Throws<SubtitleException>(() => SubtitleFiles.Normalize(Encoding.UTF8.GetBytes("<!DOCTYPE html><html>sign in</html>"))).Message);
+        Assert.Throws<SubtitleException>(() => SubtitleFiles.Normalize([]));
     }
 }

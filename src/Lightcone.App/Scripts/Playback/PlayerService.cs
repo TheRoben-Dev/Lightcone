@@ -346,15 +346,55 @@ public partial class PlayerService : Node
         }
     }
 
-    /// <summary>Loads an external subtitle file or URL and shows it.</summary>
-    public void AddSubtitle(string url, string? title = null, string? lang = null)
+    /// <summary>
+    /// Loads an external subtitle file or URL and shows it: selects the new track and makes sure
+    /// subtitles are visible. Returns null when it's on screen, else why not.
+    /// </summary>
+    public string? AddSubtitle(string url, string? title = null, string? lang = null)
     {
-        if (_mpv == null)
+        if (_mpv == null || Current == null)
         {
-            return;
+            return "Nothing is playing.";
         }
-        AppLog.Info($"subtitle added: {title} ({lang}) from {(url.Contains("://", StringComparison.Ordinal) ? new Uri(url).Host : "a file")}");
-        Guard(() => _mpv.Command("sub-add", url, "select", title ?? "Downloaded", lang ?? ""));
+        var where = url.Contains("://", StringComparison.Ordinal) ? new Uri(url).Host : "a file";
+        var before = _mpv.Tracks.Where(t => t.Kind == TrackKind.Subtitle).Select(t => t.Id).ToHashSet();
+        try
+        {
+            _mpv.Command("sub-add", url, "select", title ?? "Downloaded", lang ?? "");
+        }
+        catch (MpvException e)
+        {
+            AppLog.Warn($"subtitle add failed: {title} from {where}: {e.Message}");
+            return "The player couldn't open that subtitle: " + e.Message;
+        }
+        Tracks = _mpv.Tracks;
+        var added = Tracks.Where(t => t.Kind == TrackKind.Subtitle && !before.Contains(t.Id)).OrderByDescending(t => t.Id).FirstOrDefault()
+            ?? Tracks.Where(t => t.Kind == TrackKind.Subtitle && t.External).OrderByDescending(t => t.Id).FirstOrDefault();
+        if (added == null)
+        {
+            AppLog.Warn($"subtitle add: no new track after loading {title} from {where}");
+            return "The player loaded the file but found no subtitles in it.";
+        }
+        // "select" should have picked it; if something else won, pick it by id. Re-setting sid to
+        // the track it already is restarts the track and drops what's on screen, so only on a miss.
+        var sid = _mpv.GetString("sid");
+        if (sid != added.Id.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        {
+            AppLog.Info($"subtitle add: sid was {sid}, selecting {added.Id}");
+            Guard(() => _mpv.SelectSubtitle(added.Id));
+        }
+        if (_mpv.GetString("sub-visibility") == "no")
+        {
+            Guard(() => _mpv.SetString("sub-visibility", "yes"));
+        }
+        if (TrackKey(Current) is { } key)
+        {
+            // Next time (this movie, or the show's next episode) prefer this language and keep subtitles on.
+            Host.Library.Lists.RememberTracks(key, subtitle: added.Language ?? lang, subtitlesOff: false);
+        }
+        AppLog.Info($"subtitle added: {title} ({lang}) from {where} as track {added.Id}, sid now {_mpv.GetString("sid")}");
+        Changed?.Invoke();
+        return null;
     }
 
     public void SetNightMode(bool on)

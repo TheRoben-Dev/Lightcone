@@ -95,7 +95,10 @@ public interface IMediaSource
     Task<IReadOnlyList<SubtitleResult>> SearchSubtitlesAsync(MediaItem item, string language, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<SubtitleResult>>([]);
 
-    /// <summary>Has the server fetch <paramref name="result"/> and returns a URL (or path) mpv can load, or null.</summary>
+    /// <summary>
+    /// Has the server fetch <paramref name="result"/>, downloads it and returns the path of a local,
+    /// UTF-8 subtitle file (see <see cref="SubtitleFiles"/>). Throws <see cref="SubtitleException"/> with a reason for the user.
+    /// </summary>
     Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
     /// <summary>Ids of titles the server thinks are like <paramref name="item"/> ("More like this"), best first.</summary>

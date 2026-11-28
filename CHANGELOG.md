@@ -3,6 +3,13 @@
 User-facing changes per release. The section for a version opens its GitHub release notes and
 the in-app "What's new" page.
 
+## 0.11.1
+
+- Find subtitles works with Plex: picking a subtitle now waits for your server to finish fetching it from OpenSubtitles (it does that in the background) and then loads exactly that one. Before, Lightcone asked straight away, so it either found nothing ("Couldn't get that subtitle") or loaded an older subtitle file.
+- Picked subtitles show up: Lightcone downloads the file itself, unpacks zipped or gzipped ones and converts the text to UTF-8, so Swedish and other accented letters come out right, then turns the new track on and ticks it in the player options. The next episode of the show keeps subtitles on in that language.
+- Real reasons when it fails: instead of a generic error you get what went wrong, such as the server refusing (and the status code), OpenSubtitles being out of downloads for today, a timeout, or a web page arriving instead of a subtitle. The same goes for searching.
+- Jellyfin: the same waiting and file handling for subtitles fetched through the OpenSubtitles plugin.
+
 ## 0.11.0
 
 - Collections as shelves: X in Movies or Shows (Collections on the desktop) now shows rows instead of one big grid: your collections, the ones from your Plex server, Franchises, Directors, Genres and Decades. Up and down move between rows, left and right along one.

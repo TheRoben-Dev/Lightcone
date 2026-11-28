@@ -85,11 +85,14 @@ public class PlexTests : IDisposable
         public readonly ConcurrentDictionary<string, string> Routes = new();
         public readonly ConcurrentQueue<HttpRequestMessage> Seen = new();
         public readonly HashSet<string> Down = new();
+        public readonly ConcurrentDictionary<string, byte[]> Files = new();
+        public Action<HttpRequestMessage>? OnRequest;
         public int PinChecks;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Seen.Enqueue(request);
+            OnRequest?.Invoke(request);
             var u = request.RequestUri!;
             var origin = u.GetLeftPart(UriPartial.Authority);
             if (Down.Contains(origin))
@@ -104,6 +107,10 @@ public class PlexTests : IDisposable
             }
             var keyWithQuery = $"{request.Method} {origin}{u.AbsolutePath}{u.Query}";
             var key = $"{request.Method} {origin}{u.AbsolutePath}";
+            if (Files.TryGetValue(key, out var bytes))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+            }
             if (Routes.TryGetValue(keyWithQuery, out var body) || Routes.TryGetValue(key, out body))
             {
                 return Ok(body);
@@ -403,5 +410,58 @@ public class PlexTests : IDisposable
         await plex.Watchlist.Flush();
         Assert.Equal(before, fake.Paths("/actions/").Count());
         Assert.False(lib.OnWatchlist(heat));
+    }
+
+    private static string SubtitleMeta(params int[] sidecars) =>
+        "{\"MediaContainer\":{\"Metadata\":[{\"ratingKey\":\"101\",\"type\":\"movie\",\"title\":\"Arrival\",\"Media\":[{\"Part\":[{\"Stream\":["
+        + "{\"id\":900,\"streamType\":3,\"codec\":\"subrip\",\"languageCode\":\"eng\"}"  // embedded: no key
+        + string.Concat(sidecars.Select(id => $",{{\"id\":{id},\"streamType\":3,\"key\":\"/library/streams/{id}\",\"codec\":\"srt\",\"title\":\"sub{id}.srt\"}}"))
+        + "]}]}]}]}}";
+
+    [Fact]
+    public async Task FetchedSubtitleWaitsForTheServerAndComesBackAsUtf8File()
+    {
+        var fake = Fake();
+        var (_, plex) = Make(fake);
+        await plex.SignInAsync("account-token");
+        await plex.UseServersAsync(await plex.ServersAsync());
+        var source = Assert.Single(plex.Sources);
+        var b = source.Entry.LastUri!;
+        var arrival = source.Items.First(i => i.Id == "plex:srv1:101");
+        (PlexSource.SubtitleWait, PlexSource.SubtitlePoll) = (TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(20));
+
+        // One subtitle downloaded earlier; the picked one turns up a few polls after the PUT.
+        fake.Routes[$"GET {b}/library/metadata/101"] = SubtitleMeta(5);
+        fake.Routes[$"PUT {b}/library/metadata/101/subtitles"] = "";
+        var polls = 0;
+        fake.OnRequest = r =>
+        {
+            if (r.Method == HttpMethod.Get && r.RequestUri!.AbsolutePath == "/library/metadata/101" && fake.Paths("/subtitles?key=").Any() && ++polls == 3)
+            {
+                fake.Routes[$"GET {b}/library/metadata/101"] = SubtitleMeta(5, 77);
+            }
+        };
+        // Windows-1252 Swedish, as OpenSubtitles often has it.
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        fake.Files[$"GET {b}/library/streams/77"] = Encoding.GetEncoding(1252).GetBytes("1\r\n00:00:01,000 --> 00:00:03,000\r\nHej då, världen\r\n");
+        var result = new SubtitleResult("/subtitles/opensubtitles/abc", "Arrival.2016.srt", "OpenSubtitles", "sv");
+
+        var file = await ((IMediaSource)source).FetchSubtitleAsync(arrival, result);
+        Assert.EndsWith(".srt", file);
+        Assert.Contains("Hej då, världen", await File.ReadAllTextAsync(file!, Encoding.UTF8));
+        Assert.Contains(fake.Paths("/library/metadata/101/subtitles?key="), p => p.Contains("key=%2Fsubtitles%2Fopensubtitles%2Fabc"));
+        Assert.Empty(fake.Paths("/library/streams/5"));  // never the old one
+        File.Delete(file!);
+
+        // Nothing new ever shows up: a real reason, not a silent null.
+        fake.OnRequest = null;
+        fake.Routes[$"GET {b}/library/metadata/101"] = SubtitleMeta(5);
+        var e = await Assert.ThrowsAsync<SubtitleException>(() => ((IMediaSource)source).FetchSubtitleAsync(arrival, result with { Title = "Other.srt" }));
+        Assert.Contains("didn't finish downloading", e.Message);
+
+        // The server refuses: the status code comes through.
+        fake.Routes.TryRemove($"PUT {b}/library/metadata/101/subtitles", out _);
+        e = await Assert.ThrowsAsync<SubtitleException>(() => ((IMediaSource)source).FetchSubtitleAsync(arrival, result));
+        Assert.Contains("404", e.Message);
     }
 }
