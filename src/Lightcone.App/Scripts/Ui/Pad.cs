@@ -110,23 +110,19 @@ public static class Pad
                 }
             }
         }
-        // Hot-plug: forget anything a pad held when it goes away, so no button or direction sticks.
+        // Hot-plug (Bluetooth idle timeout, unplugging, docking, Steam swapping its virtual pad):
+        // forget everything about a pad that went away, so nothing sticks and nothing (rumble,
+        // glyph detection) ever touches a device id that no longer exists. Godot reuses ids, so a
+        // stale one would otherwise point at the next controller that connects.
         Input.Singleton.JoyConnectionChanged += (device, connected) =>
         {
-            Lightcone.Host.AppLog.Info($"pad {device} {(connected ? "connected" : "disconnected")}; pads: {DescribePads()}");
-            foreach (var down in _buttonDown.Values)
+            try
             {
-                down.Remove((int)device);
+                OnConnectionChanged((int)device, connected);
             }
-            _sticks.Remove((int)device);
-            if (!connected && _glyphDevice == device)
+            catch (Exception e)
             {
-                _glyphDevice = -1;
-            }
-            if (!connected)
-            {
-                _dpadHeld.Clear();
-                _held = null;
+                Lightcone.Host.AppLog.Error($"pad {device} hot-plug: {e}");
             }
         };
         AddKeyAction(TabPrev, Key.Q, Key.Pageup);
@@ -143,6 +139,60 @@ public static class Pad
         InputMap.ActionAddEvent(Back, new InputEventMouseButton { ButtonIndex = MouseButton.Xbutton1 });
         InputMap.ActionAddEvent(TabPrev, new InputEventMouseButton { ButtonIndex = MouseButton.WheelLeft });
         InputMap.ActionAddEvent(TabNext, new InputEventMouseButton { ButtonIndex = MouseButton.WheelRight });
+    }
+
+    private static void OnConnectionChanged(int device, bool connected)
+    {
+        Lightcone.Host.AppLog.Info($"pad {device} {(connected ? "connected" : "disconnected")}; pads: {DescribePads()}");
+        // Buttons this pad was holding: release the action once no other pad holds it either.
+        foreach (var (button, down) in _buttonDown)
+        {
+            if (down.Remove(device) && down.Count == 0 && !connected && ActionFor(button, LastFamily) is { } action && !Directions.Contains(action))
+            {
+                Emit(action, false);
+            }
+        }
+        foreach (var button in _lastPress.Where(p => p.Value.Device == device).Select(p => p.Key).ToList())
+        {
+            _lastPress.Remove(button);
+        }
+        _sticks.Remove(device);
+        if (_glyphDevice == device)
+        {
+            _glyphDevice = -1;  // re-detect the glyphs on the next press, whichever pad it is
+        }
+        if (connected)
+        {
+            return;
+        }
+        _dpadHeld.Clear();
+        _triggerHeld.Clear();
+        _held = null;
+        if (LastDevice == device)
+        {
+            // Rumble goes to another pad that's still here, or nowhere.
+            var left = Input.GetConnectedJoypads();
+            LastDevice = left.Count > 0 ? left[0] : null;
+        }
+    }
+
+    /// <summary>True when the joypad id belongs to a controller that is connected right now.</summary>
+    public static bool IsConnected(int device) => device >= 0 && Input.GetConnectedJoypads().Contains(device);
+
+    /// <summary>Rumble on a pad, if it's still connected (it may have timed out or been unplugged).</summary>
+    public static void Rumble(int device, float weak, float strong, float seconds)
+    {
+        try
+        {
+            if (IsConnected(device))
+            {
+                Input.StartJoyVibration(device, weak, strong, seconds);
+            }
+        }
+        catch (Exception e)
+        {
+            Lightcone.Host.AppLog.Warn($"rumble on pad {device}: {e.Message}");
+        }
     }
 
     private static void AddKeyAction(string action, params Key[] keys)
