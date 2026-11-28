@@ -414,20 +414,60 @@ public sealed class JellyfinSource : IMediaSource
     {
         if (!CanSearchSubtitles(item))
         {
-            return null;
+            throw new SubtitleException($"{Name} can't fetch subtitles for this.");
         }
         var key = ServerKey(item.Id);
-        using (await _client.SendAsync(HttpMethod.Post, $"{Url}/Items/{key}/RemoteSearch/Subtitles/{Uri.EscapeDataString(result.Id)}", _entry.Token, ct: ct, timeout: TimeSpan.FromSeconds(30)))
+        try
         {
+            // The server saves the file, then picks it up in a library refresh it queues: note the
+            // external subtitles there now and wait for the new one.
+            var known = (await ExternalSubtitlesAsync(key, ct)).Select(s => s.Index).ToHashSet();
+            using (await _client.SendAsync(HttpMethod.Post, $"{Url}/Items/{key}/RemoteSearch/Subtitles/{Uri.EscapeDataString(result.Id)}", _entry.Token, ct: ct, timeout: TimeSpan.FromSeconds(60)))
+            {
+            }
+            var until = DateTime.UtcNow + PlexSource.SubtitleWait;
+            (int Index, string? Codec) sub = default;
+            var found = false;
+            while (!found)
+            {
+                var now = await ExternalSubtitlesAsync(key, ct);
+                var fresh = now.Where(s => !known.Contains(s.Index)).ToList();
+                if (fresh.Count > 0)
+                {
+                    sub = fresh.MaxBy(s => s.Index);
+                    found = true;
+                }
+                else if (DateTime.UtcNow > until)
+                {
+                    throw new SubtitleException($"{Name} saved the subtitle but hasn't picked it up yet. Try again in a moment.");
+                }
+                else
+                {
+                    await Task.Delay(PlexSource.SubtitlePoll, ct);
+                }
+            }
+            var fmt = sub.Codec is "ass" or "ssa" or "vtt" ? sub.Codec : "srt";
+            var data = await _client.GetBytesAsync(string.Create(CultureInfo.InvariantCulture, $"{Url}/Videos/{key}/{key}/Subtitles/{sub.Index}/Stream.{fmt}"), _entry.Token, ct);
+            AppLog.Info($"jellyfin subtitle for {item.Id}: stream {sub.Index} ({sub.Codec ?? "?"})");
+            return SubtitleFiles.Save(data, $"{item.Id}|{sub.Index}", "sub." + fmt);
         }
+        catch (HttpRequestException e)
+        {
+            throw SubtitleException.FromHttp(e, Name, "get that subtitle");
+        }
+        catch (JellyfinAuthException e)
+        {
+            throw new SubtitleException($"{Name} says you're signed out. Sign in to Jellyfin again in Sources.", e);
+        }
+    }
+
+    private async Task<List<(int Index, string? Codec)>> ExternalSubtitlesAsync(string key, CancellationToken ct)
+    {
         using var doc = await _client.GetJsonAsync($"{Url}/Users/{_entry.UserId}/Items/{key}?Fields=MediaStreams", _entry.Token, ct, TimeSpan.FromSeconds(15));
-        var sub = Array(doc.RootElement, "MediaStreams").Where(s => JellyfinClient.Str(s, "Type") == "Subtitle" && s.TryGetProperty("IsExternal", out var ext) && ext.ValueKind == JsonValueKind.True)
-            .OrderByDescending(s => JellyfinClient.Num(s, "Index") ?? 0).FirstOrDefault();
-        if (sub.ValueKind == JsonValueKind.Undefined || JellyfinClient.Num(sub, "Index") is not { } index)
-        {
-            return null;
-        }
-        return string.Create(CultureInfo.InvariantCulture, $"{Url}/Videos/{key}/{key}/Subtitles/{(int)index}/Stream.srt?api_key={Uri.EscapeDataString(_entry.Token)}");
+        return Array(doc.RootElement, "MediaStreams")
+            .Where(s => JellyfinClient.Str(s, "Type") == "Subtitle" && s.TryGetProperty("IsExternal", out var ext) && ext.ValueKind == JsonValueKind.True && JellyfinClient.Num(s, "Index") is not null)
+            .Select(s => ((int)JellyfinClient.Num(s, "Index")!.Value, JellyfinClient.Str(s, "Codec")?.ToLowerInvariant()))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<string>> SimilarAsync(MediaItem item, CancellationToken ct = default)

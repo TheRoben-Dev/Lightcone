@@ -355,26 +355,73 @@ public sealed class PlexSource : IMediaSource
 
     internal static IReadOnlyList<SubtitleResult> ParseSubtitleSearch(JsonElement root, string language) =>
         Children(root, "Stream").Select(s => PlexClient.Str(s, "key") is { } key
-                ? new SubtitleResult(key, PlexClient.Str(s, "displayTitle") ?? PlexClient.Str(s, "title") ?? "Subtitle", PlexClient.Str(s, "providerTitle") ?? "OpenSubtitles",
+                ? new SubtitleResult(key, PlexClient.Str(s, "title") ?? PlexClient.Str(s, "displayTitle") ?? "Subtitle", PlexClient.Str(s, "providerTitle") ?? "OpenSubtitles",
                     PlexClient.Str(s, "languageCode") ?? language, PlexClient.Num(s, "score"), PlexClient.Str(s, "hearingImpaired") is "1" or "true")
                 : null)
             .OfType<SubtitleResult>().OrderByDescending(r => r.Score ?? 0).ToList();
+
+    /// <summary>How long to wait for the server to finish downloading a picked subtitle, and how often to look.</summary>
+    internal static TimeSpan SubtitleWait = TimeSpan.FromSeconds(30);
+    internal static TimeSpan SubtitlePoll = TimeSpan.FromSeconds(1);
 
     public async Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default)
     {
         if (!CanSearchSubtitles(item) || Base is not { } b)
         {
-            return null;
+            throw new SubtitleException($"{Name} isn't reachable right now.");
         }
         var rk = RatingKey(item.Id);
-        // Selecting a search result makes the server download it next to the file, as a new subtitle stream.
-        await _client.SendAsync(HttpMethod.Put, $"{b}/library/metadata/{rk}/subtitles?key={Uri.EscapeDataString(result.Id)}", _entry.AccessToken, ct);
-        using var doc = await _client.GetJsonAsync($"{b}/library/metadata/{rk}", _entry.AccessToken, ct, TimeSpan.FromSeconds(15));
-        var stream = Metadata(doc.RootElement).SelectMany(m => Arr(m, "Media")).SelectMany(m => Arr(m, "Part")).SelectMany(p => Arr(p, "Stream"))
-            .Where(s => PlexClient.Num(s, "streamType") == 3 && PlexClient.Str(s, "key") is not null)
-            .OrderByDescending(s => PlexClient.Num(s, "id") ?? 0).FirstOrDefault();
-        return stream.ValueKind == JsonValueKind.Undefined ? null : $"{b}{PlexClient.Str(stream, "key")}?X-Plex-Token={Uri.EscapeDataString(_entry.AccessToken)}";
+        try
+        {
+            // Plex keeps a picked subtitle as a new sidecar stream on the part. Picking it is
+            // asynchronous: the PUT returns before the server has fetched it from OpenSubtitles, so
+            // note the streams there now and wait for a new one to show up.
+            var before = await SubtitleStreamsAsync(b, rk, ct);
+            var known = before.Select(s => s.Id).ToHashSet();
+            await _client.SendAsync(HttpMethod.Put, $"{b}/library/metadata/{rk}/subtitles?key={Uri.EscapeDataString(result.Id)}", _entry.AccessToken, ct);
+            var until = DateTime.UtcNow + SubtitleWait;
+            (long Id, string Key, string? Title, string? Codec) stream = default;
+            while (stream == default)
+            {
+                await Task.Delay(SubtitlePoll, ct);
+                var now = await SubtitleStreamsAsync(b, rk, ct);
+                stream = now.Where(s => !known.Contains(s.Id)).OrderByDescending(s => s.Id).FirstOrDefault();
+                if (stream == default && DateTime.UtcNow > until)
+                {
+                    // Picked before: Plex may keep the stream it already has instead of adding one.
+                    stream = now.FirstOrDefault(s => s.Title == result.Title);
+                    if (stream == default)
+                    {
+                        throw new SubtitleException($"{Name} didn't finish downloading that subtitle. OpenSubtitles may be out of downloads for today, or the file is gone. Try another one.");
+                    }
+                }
+            }
+            AppLog.Info($"plex subtitle for {item.Id}: stream {stream.Id} ({stream.Codec ?? "?"})");
+            var data = await _client.GetBytesAsync($"{b}{stream.Key}", _entry.AccessToken, ct);
+            return SubtitleFiles.Save(data, $"{item.Id}|{stream.Id}", stream.Codec is { } c ? "sub." + c : null);
+        }
+        catch (HttpRequestException e)
+        {
+            throw SubtitleException.FromHttp(e, Name, "get that subtitle");
+        }
+        catch (PlexAuthException e)
+        {
+            throw new SubtitleException($"{Name} says you're signed out. Sign in to Plex again in Sources.", e);
+        }
     }
+
+    /// <summary>The item's sidecar subtitle streams (the ones with a file to fetch).</summary>
+    private async Task<List<(long Id, string Key, string? Title, string? Codec)>> SubtitleStreamsAsync(string b, string rk, CancellationToken ct)
+    {
+        using var doc = await _client.GetJsonAsync($"{b}/library/metadata/{rk}", _entry.AccessToken, ct, TimeSpan.FromSeconds(15));
+        return ParseSubtitleStreams(doc.RootElement);
+    }
+
+    internal static List<(long Id, string Key, string? Title, string? Codec)> ParseSubtitleStreams(JsonElement root) =>
+        Metadata(root).SelectMany(m => Arr(m, "Media")).SelectMany(m => Arr(m, "Part")).SelectMany(p => Arr(p, "Stream"))
+            .Where(s => PlexClient.Num(s, "streamType") == 3 && PlexClient.Str(s, "key") is not null && PlexClient.Num(s, "id") is not null)
+            .Select(s => ((long)PlexClient.Num(s, "id")!.Value, PlexClient.Str(s, "key")!, PlexClient.Str(s, "title"), PlexClient.Str(s, "codec")))
+            .ToList();
 
     public async Task<IReadOnlyList<string>> SimilarAsync(MediaItem item, CancellationToken ct = default)
     {

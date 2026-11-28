@@ -210,12 +210,12 @@ public sealed class DemoSource : IMediaSource
     public async Task<string?> FetchSubtitleAsync(MediaItem item, SubtitleResult result, CancellationToken ct = default)
     {
         var file = Path.Combine(Path.GetTempPath(), $"lightcone-sample-{result.Id.Replace(':', '-')}.srt");
-        // A line every 5 seconds for two hours, so one is always on screen.
+        // A line every 5 seconds for two hours, back to back, so one is always on screen.
         var lines = Enumerable.Range(0, 1440).Select(k =>
         {
             var a = TimeSpan.FromSeconds(k * 5);
-            var b = a + TimeSpan.FromSeconds(4);
-            return $"{k + 1}\n{a:hh\\:mm\\:ss},000 --> {b:hh\\:mm\\:ss},800\n{item.Title}: sample line {k + 1} ({result.Language})\n";
+            var b = a + TimeSpan.FromSeconds(5);
+            return $"{k + 1}\n{a:hh\\:mm\\:ss},000 --> {b:hh\\:mm\\:ss},000\n{item.Title}: sample line {k + 1} ({result.Language})\n";
         });
         await File.WriteAllTextAsync(file, string.Join("\n", lines), ct);
         return file;

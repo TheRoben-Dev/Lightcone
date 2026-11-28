@@ -99,11 +99,16 @@ public partial class SubtitleSearchPage : Screen
         {
             found = await Host.Library.SearchSubtitlesAsync(_item, _lang);
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or System.Text.Json.JsonException)
+        catch (Exception e)
         {
-            AppLog.Info($"subtitle search for {_item.Id}: {e.Message}");
+            AppLog.Warn($"subtitle search for {_item.Id}: {e.GetType().Name}: {e.Message}");
             found = [];
-            _status = "The server couldn't search right now: " + e.Message;
+            _status = e switch
+            {
+                HttpRequestException h => SubtitleException.FromHttp(h, "The server", "search for subtitles").Message,
+                TaskCanceledException => "The server took too long to search. OpenSubtitles may be slow right now; try again.",
+                _ => "The server couldn't search right now: " + e.Message,
+            };
         }
         if (!IsInstanceValid(this) || n != _search)
         {
@@ -124,31 +129,68 @@ public partial class SubtitleSearchPage : Screen
         }
     }
 
+    private bool _fetching;
+
     private async void Fetch(SubtitleResult r)
     {
-        App.Toast("Getting the subtitle…");
-        string? url;
+        if (_fetching)
+        {
+            return;
+        }
+        _fetching = true;
+        App.Toast("Getting the subtitle… the server fetches it from OpenSubtitles first.");
+        string? file = null;
+        string? error = null;
         try
         {
-            url = await Host.Library.FetchSubtitleAsync(_item, r);
+            file = await Host.Library.FetchSubtitleAsync(_item, r);
+            if (file == null)
+            {
+                error = "This server can't fetch subtitles.";
+            }
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or System.Text.Json.JsonException)
+        catch (SubtitleException e)
         {
-            AppLog.Info($"subtitle fetch {r.Id}: {e.Message}");
-            url = null;
+            error = e.Message;
         }
-        if (!IsInstanceValid(this))
+        catch (TaskCanceledException)
         {
+            error = "The server took too long to answer. Try again, or pick another one.";
+        }
+        catch (Exception e)
+        {
+            error = $"Couldn't get that subtitle: {e.Message}";
+        }
+        _fetching = false;
+        if (error != null)
+        {
+            AppLog.Warn($"subtitle fetch {r.Id} for {_item.Id}: {error}");
+            if (IsInstanceValid(this))
+            {
+                App.Toast(error);
+            }
             return;
         }
-        if (url == null)
+        if (PlayerService.Instance.Current?.Id != _item.Id)
         {
-            App.Toast("Couldn't get that subtitle. Try another one.");
+            App.Toast("Got it, but playback moved on. It's saved on the server for next time.");
             return;
         }
-        PlayerService.Instance.AddSubtitle(url, r.Title, r.Language);
-        App.Toast("Subtitles: " + r.Title);
-        App.Pop();
+        if (PlayerService.Instance.AddSubtitle(file!, r.Title, r.Language) is { } why)
+        {
+            App.Toast(why);
+            return;
+        }
+        App.Toast("Subtitles on: " + r.Title);
+        if (IsInstanceValid(this) && Main.Instance.TopOrNull == this)
+        {
+            App.Pop();
+            // Back on the player options: show the new track, ticked.
+            if (Main.Instance.TopOrNull is TrackPickerPage picker)
+            {
+                picker.Rebuild();
+            }
+        }
     }
 
     public override void FocusDefault() => _first?.GrabFocus();
