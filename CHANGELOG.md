@@ -13,6 +13,7 @@ the in-app "What's new" page.
 - The full Plex watchlist: titles on your Plex watchlist that your server doesn't have show up too, marked "Not on server", with their poster, year and summary. Open one to read about it or take it off your watchlist.
 - Watchlist page: See all at the end of Home's Watchlist row opens it. Filter by movies, shows, on your server or not, Y changes the order (date added, title, release year), and X takes the selected title off.
 - Watchlist sync: changes made in other Plex apps show up within 5 minutes, or as soon as you come back to Home. Anything you added in Lightcone while plex.tv couldn't be reached is sent once it can, and titles you removed elsewhere stay removed.
+- Smooth on NVIDIA: on Linux PCs with an NVIDIA card the whole app (menus and movies) could run at around 10 fps. Lightcone now switches itself to desktop OpenGL on NVIDIA (it restarts once on first launch to do it), and the log names the GPU in use.
 
 ## 0.10.0
 

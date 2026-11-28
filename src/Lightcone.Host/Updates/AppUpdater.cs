@@ -312,6 +312,12 @@ public sealed class AppUpdater
                 throw new InvalidDataException("The update package is missing the app binary.");
             }
             var newApp = Path.Combine(extracted, Package.Folder);
+            // Keep machine-local engine settings (override.cfg: the renderer picked for this GPU).
+            var overrideCfg = Path.Combine(InstallDir, "override.cfg");
+            if (File.Exists(overrideCfg) && !File.Exists(Path.Combine(newApp, "override.cfg")))
+            {
+                File.Copy(overrideCfg, Path.Combine(newApp, "override.cfg"));
+            }
 
             // Swap: current -> .previous (replacing an older .previous), new -> current.
             if (Directory.Exists(PreviousDir))

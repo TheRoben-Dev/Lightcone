@@ -112,6 +112,12 @@ public partial class Main : Control
         {
             AppLog.Error("startup: " + startupError);
         }
+        if (RendererPick.RestartIfNeeded())
+        {
+            SetProcess(false);
+            GetTree().Quit();
+            return;
+        }
         var args = OS.GetCmdlineUserArgs();
         if (host != null && args.Contains("--demo") && !host.Settings.DemoLibrary)
         {
@@ -119,7 +125,7 @@ public partial class Main : Control
             host.ApplyDemo(true);
         }
         var startTheme = host?.Settings.Theme ?? "lightcone";
-        AppLog.Info($"{Lightcone.Core.Platform.Name}, theme {startTheme}, window {DisplayServer.WindowGetSize()}, driver {RenderingServer.GetCurrentRenderingDriverName()} on {DisplayServer.GetName()}, pads: {Pad.DescribePads()}");
+        AppLog.Info($"{Lightcone.Core.Platform.Name}, theme {startTheme}, window {DisplayServer.WindowGetSize()}, driver {RenderingServer.GetCurrentRenderingDriverName()} on {DisplayServer.GetName()}, GPU {RendererPick.Describe()}, pads: {Pad.DescribePads()}");
         UiTheme.Use(startTheme, host?.Settings.Accents.GetValueOrDefault(startTheme));
         Anim.Enabled = !(host?.Settings.ReduceMotion ?? false);
         Loc.Apply(host?.Settings.Language ?? "auto");
