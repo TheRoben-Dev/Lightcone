@@ -124,6 +124,11 @@ public partial class LibraryScreen : Screen
             col.AddChild(BuildTable(items));
             return;
         }
+        if (_collections)
+        {
+            BuildShelves(col);
+            return;
+        }
         var shape = items.Count > 0 ? PosterTile.ShapeFor(items[0]) : TileShape.Poster;
         var tileW = PosterTile.SizeFor(shape, Desktop).X;
         var gap = Desktop ? 18 : 24;
@@ -142,6 +147,32 @@ public partial class LibraryScreen : Screen
         }
         Focus.Grid(tiles, columns);
         _first = tiles.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Collections as shelves, one row per kind (yours, the server's, franchises, directors,
+    /// genres, decades): up / down between shelves, left / right along one. Same in both modes.
+    /// </summary>
+    private void BuildShelves(VBoxContainer col)
+    {
+        var lib = Host.Library;
+        var body = Column(Desktop ? 18 : 26);
+        col.AddChild(Faded(Scroller(body)));
+        var rows = new List<MediaRow>();
+        foreach (var shelf in lib.CollectionShelves(_kind))
+        {
+            var row = new MediaRow(shelf, lib, Desktop, MediaActions.Open, scale: Desktop ? 1 : 0.92f);
+            body.AddChild(row);
+            rows.Add(row);
+        }
+        _first = rows.FirstOrDefault()?.Tiles.FirstOrDefault();
+        Callable.From(() =>
+        {
+            if (IsInstanceValid(this))
+            {
+                MediaRow.LinkRows(rows);
+            }
+        }).CallDeferred();
     }
 
     private void BuildToolbar(HBoxContainer head)

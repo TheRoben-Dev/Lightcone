@@ -21,6 +21,7 @@ public sealed class PlexSource : IMediaSource
     private readonly object _gate = new();
     private PlexServerEntry _entry;
     private IReadOnlyList<MediaItem> _items = [];
+    private IReadOnlyList<ServerCollection> _serverCollections = [];
     private Dictionary<string, PlexState> _state = new();
     private readonly Dictionary<string, IReadOnlyList<Marker>> _markers = new();
     private readonly Dictionary<string, SeekPreview> _previews = new();
@@ -60,6 +61,17 @@ public sealed class PlexSource : IMediaSource
             lock (_gate)
             {
                 return _items;
+            }
+        }
+    }
+
+    public IReadOnlyList<ServerCollection> ServerCollections
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _serverCollections;
             }
         }
     }
@@ -559,10 +571,12 @@ public sealed class PlexSource : IMediaSource
                 return;
             }
             var (items, state) = await FetchAsync(uri, ct);
+            var collections = await FetchCollectionsAsync(uri, ct);
             lock (_gate)
             {
                 _items = items;
                 _state = state;
+                _serverCollections = collections ?? _serverCollections;
             }
             Online = true;
             Status = "Connected";
@@ -643,6 +657,80 @@ public sealed class PlexSource : IMediaSource
         return (items, state);
     }
 
+    /// <summary>
+    /// The movie and show libraries' collections (their own poster, summary and sort order). Titles
+    /// already name the plain collections they're in; smart collections and ones in a custom order
+    /// also have their titles fetched. Null when they couldn't be read (the old ones are kept).
+    /// </summary>
+    private async Task<IReadOnlyList<ServerCollection>?> FetchCollectionsAsync(string uri, CancellationToken ct)
+    {
+        var token = _entry.AccessToken;
+        List<(string Key, string Type)> sections;
+        lock (_gate)
+        {
+            sections = _sections.Where(s => s.Type is "movie" or "show").ToList();
+        }
+        var result = new List<ServerCollection>();
+        try
+        {
+            foreach (var (key, _) in sections)
+            {
+                using var doc = await _client.GetJsonAsync($"{uri}/library/sections/{key}/collections", token, ct, TimeSpan.FromSeconds(30));
+                var fetched = 0;
+                foreach (var c in Metadata(doc.RootElement))
+                {
+                    if (ParseCollection(c, uri, token) is not { } sc)
+                    {
+                        continue;
+                    }
+                    // Members only where the tags can't tell (bounded, so a server with hundreds of
+                    // smart collections doesn't stall the refresh).
+                    if ((sc.Smart || sc.Order == CollectionOrder.Custom) && PlexClient.Str(c, "ratingKey") is { } rk && fetched < 60)
+                    {
+                        fetched++;
+                        try
+                        {
+                            using var kids = await _client.GetJsonAsync($"{uri}/library/collections/{rk}/children", token, ct, TimeSpan.FromSeconds(20));
+                            sc = sc with
+                            {
+                                Members = Metadata(kids.RootElement).Select(x => PlexClient.Str(x, "ratingKey")).OfType<string>().Select(k => $"{Id}:{k}").ToList(),
+                            };
+                        }
+                        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException && !ct.IsCancellationRequested)
+                        {
+                            AppLog.Info($"plex {Name}: titles of collection {sc.Title}: {e.Message}");
+                        }
+                    }
+                    result.Add(sc);
+                }
+            }
+            return result;
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException && !ct.IsCancellationRequested)
+        {
+            AppLog.Warn($"plex {Name}: collections not loaded: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>A collection entry from /library/sections/N/collections.</summary>
+    internal static ServerCollection? ParseCollection(JsonElement c, string uri, string token)
+    {
+        if (PlexClient.Str(c, "title") is not { Length: > 0 } title)
+        {
+            return null;
+        }
+        var order = PlexClient.Str(c, "collectionSort") switch
+        {
+            "1" => CollectionOrder.Title,
+            "2" => CollectionOrder.Custom,
+            _ => CollectionOrder.Release,
+        };
+        var thumb = PlexClient.Str(c, "thumb");
+        return new ServerCollection(title, PlexClient.Str(c, "summary") is { Length: > 0 } sum ? sum : null,
+            thumb == null ? null : PhotoUrl(uri, token, thumb, 400, 600), order, PlexClient.Bool(c, "smart"), null);
+    }
+
     internal static IEnumerable<JsonElement> Directories(JsonElement root) => Children(root, "Directory");
 
     internal static IEnumerable<JsonElement> Metadata(JsonElement root) => Children(root, "Metadata");
@@ -701,6 +789,11 @@ public sealed class PlexSource : IMediaSource
         if (m.TryGetProperty("Collection", out var cs) && cs.ValueKind == JsonValueKind.Array)
         {
             collections.AddRange(cs.EnumerateArray().Select(c => PlexClient.Str(c, "tag")).OfType<string>());
+        }
+        var directors = new List<string>();
+        if (m.TryGetProperty("Director", out var ds) && ds.ValueKind == JsonValueKind.Array)
+        {
+            directors.AddRange(ds.EnumerateArray().Select(d => PlexClient.Str(d, "tag")).OfType<string>().Take(3));
         }
         var rating = PlexClient.Num(m, "audienceRating") ?? PlexClient.Num(m, "rating");
         var duration = PlexClient.Num(m, "duration") is { } ms ? ms / 1000 : (double?)null;
@@ -769,6 +862,7 @@ public sealed class PlexSource : IMediaSource
             SeasonPosterUrl = seasonThumb == null ? null : PhotoUrl(uri, token, seasonThumb, 400, 600),
             Guid = PlexClient.Str(m, "guid"),
             Collections = collections,
+            Directors = directors,
             ContentRating = PlexClient.Str(m, "contentRating") is { Length: > 0 } cr ? cr : null,
             Rating = rating is > 0 and <= 10 ? Math.Round(rating.Value, 1) : null,
         };
@@ -787,7 +881,7 @@ public sealed class PlexSource : IMediaSource
 
     // ---- cache ----
 
-    private sealed record CacheModel(List<MediaItem> Items, Dictionary<string, PlexState> State);
+    private sealed record CacheModel(List<MediaItem> Items, Dictionary<string, PlexState> State, List<ServerCollection>? Collections = null);
 
     private void LoadCache()
     {
@@ -797,6 +891,7 @@ public sealed class PlexSource : IMediaSource
             {
                 _items = c.Items;
                 _state = c.State;
+                _serverCollections = c.Collections ?? [];
                 Status = "Offline, showing what was saved";
             }
         }
@@ -813,7 +908,7 @@ public sealed class PlexSource : IMediaSource
             CacheModel model;
             lock (_gate)
             {
-                model = new CacheModel(_items.ToList(), new Dictionary<string, PlexState>(_state));
+                model = new CacheModel(_items.ToList(), new Dictionary<string, PlexState>(_state), _serverCollections.ToList());
             }
             Directory.CreateDirectory(Path.GetDirectoryName(_cacheFile)!);
             var tmp = _cacheFile + ".tmp";

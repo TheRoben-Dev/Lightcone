@@ -12,8 +12,13 @@ public partial class MediaRow : VBoxContainer
     public List<PosterTile> Tiles { get; } = new();
     private readonly ScrollContainer _scroll;
 
+    /// <summary>Id of the "See all" card's stand-in item (it opens a page, not an item).</summary>
+    public const string SeeAllId = "lc:see-all";
+
     /// <param name="scale">Tile size against the usual (a show's season strip uses smaller posters).</param>
-    public MediaRow(HomeRow row, MediaLibrary lib, bool desktop, Action<MediaItem> open, float scale = 1)
+    /// <param name="seeAll">Adds a last "See all" card that runs this (the full watchlist page).</param>
+    /// <param name="seeAllDetail">The card's second line ("24 titles").</param>
+    public MediaRow(HomeRow row, MediaLibrary lib, bool desktop, Action<MediaItem> open, float scale = 1, Action? seeAll = null, string? seeAllDetail = null)
     {
         AddThemeConstantOverride("separation", 10);
         var title = UiTheme.Label(UiTheme.Mono ? Loc.Upper(row.Title) : row.Title, desktop ? UiTheme.FontSize : UiTheme.FontSize + 4, UiTheme.Text);
@@ -49,6 +54,21 @@ public partial class MediaRow : VBoxContainer
         foreach (var item in row.Items)
         {
             var tile = new PosterTile(item, shape, PosterTile.ProgressOf(lib, item), desktop, open, scale);
+            Tiles.Add(tile);
+            hbox.AddChild(tile);
+        }
+        if (seeAll != null)
+        {
+            var more = new MediaItem
+            {
+                Id = SeeAllId,
+                Title = "See all  ›",
+                Subtitle = seeAllDetail,
+                Kind = MediaKind.Collection,
+                SourceId = "",
+                SourceName = "",
+            };
+            var tile = new PosterTile(more, shape, null, desktop, _ => seeAll(), scale) { TooltipText = $"{row.Title}: see all" };
             Tiles.Add(tile);
             hbox.AddChild(tile);
         }

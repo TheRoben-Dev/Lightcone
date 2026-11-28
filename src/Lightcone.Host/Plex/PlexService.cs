@@ -22,6 +22,7 @@ public sealed class PlexService
         Client = new PlexClient(http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(3) }, Account.ClientId);
         Watchlist = new PlexWatchlist(Client, Path.Combine(_cacheDir, "watchlist.json")) { Token = () => Account.Token };
         Watchlist.Changed += () => _library.NotifyChanged();
+        _library.OnlineWatchlist = Watchlist;
         foreach (var s in Account.Servers)
         {
             AddSource(s);
@@ -38,7 +39,65 @@ public sealed class PlexService
 
     /// <summary>Refreshes every server in the background (at startup and from Sources).</summary>
     public Task RefreshAllAsync(CancellationToken ct = default) =>
-        Task.WhenAll(_sources.Values.Select(s => s.RefreshAsync(ct)).Append(Watchlist.RefreshAsync(ct)));
+        Task.WhenAll(_sources.Values.Select(s => s.RefreshAsync(ct)).Append(SyncWatchlistAsync(ct)));
+
+    private int _syncing;
+
+    /// <summary>
+    /// Reads the plex.tv watchlist, then sends what was added on this device since the last sync
+    /// (before signing in, or while offline), so the two lists end up the same. Removals made in
+    /// other Plex apps stay removed: only newer local additions are sent.
+    /// </summary>
+    public async Task SyncWatchlistAsync(CancellationToken ct = default)
+    {
+        if (Interlocked.Exchange(ref _syncing, 1) == 1)
+        {
+            return;
+        }
+        try
+        {
+            var since = Watchlist.SyncedAt;
+            if (!await Watchlist.RefreshAsync(ct))
+            {
+                return;
+            }
+            var sent = 0;
+            foreach (var id in _library.Lists.Watchlist())
+            {
+                if (since is { } t && _library.Lists.AddedToWatchlist(id) is { } at && at <= t)
+                {
+                    continue;
+                }
+                if (_library.Find(id) is { Guid: { } guid, Kind: MediaKind.Movie or MediaKind.Show } item && item.SourceId.StartsWith("plex:", StringComparison.Ordinal) &&
+                    Watchlist.Has(guid) == false)
+                {
+                    Watchlist.Set(guid, true);
+                    sent++;
+                }
+            }
+            if (sent > 0)
+            {
+                AppLog.Info($"plex: sent {sent} watchlist title(s) added on this device");
+            }
+            if (_sources.Count > 0)
+            {
+                Watchlist.MarkSynced();
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _syncing, 0);
+        }
+    }
+
+    /// <summary>Syncs the watchlist when it's older than <paramref name="age"/> (returning to Home, the 5-minute timer).</summary>
+    public void SyncWatchlistIfStale(TimeSpan age)
+    {
+        if (Account.Token != null && DateTime.UtcNow - Watchlist.LastRefresh > age)
+        {
+            _ = SyncWatchlistAsync();
+        }
+    }
 
     /// <summary>
     /// Waits for the code to be entered at plex.tv/link (polling every 2 s until it expires).
@@ -72,7 +131,7 @@ public sealed class PlexService
         Account = Account with { Token = token, Name = name };
         Account.Save(_accountFile);
         AppLog.Info($"plex: signed in as {name}");
-        _ = Watchlist.RefreshAsync(ct);
+        _ = SyncWatchlistAsync(ct);
         return await Client.ServersAsync(token, ct);
     }
 

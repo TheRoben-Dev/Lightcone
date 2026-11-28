@@ -41,9 +41,21 @@ public partial class HomeScreen : Screen
         var hero = BuildHero(featured, resume: lead.Id == "continue");
         col.AddChild(hero.Panel);
         var mediaRows = new List<MediaRow>();
+        // Back on Home: pick up watchlist changes made in other Plex apps (at most once a minute).
+        Host.Plex.SyncWatchlistIfStale(TimeSpan.FromMinutes(1));
         foreach (var row in rows)
         {
-            var r = new MediaRow(row, lib, Desktop, row.Id == "continue" ? MediaActions.Resume : MediaActions.Open);
+            MediaRow r;
+            if (row.Id == "watchlist")
+            {
+                // The whole list (with titles your server doesn't have) is a page of its own.
+                var total = lib.Watchlist(notInLibrary: true).Count;
+                r = new MediaRow(row, lib, Desktop, MediaActions.Open, seeAll: () => App.Push(new WatchlistPage()), seeAllDetail: $"{total} {(total == 1 ? "title" : "titles")}");
+            }
+            else
+            {
+                r = new MediaRow(row, lib, Desktop, row.Id == "continue" ? MediaActions.Resume : MediaActions.Open);
+            }
             mediaRows.Add(r);
             col.AddChild(r);
         }

@@ -375,6 +375,96 @@ public partial class SmokeTest : Node
         Step("controller-layout", () => Main.Instance.ApplyLayout("auto"), wait: 1.5, tab: "Settings");
         AddRelease09Steps();
         AddRelease10Steps();
+        AddRelease11Steps();
+    }
+
+    /// <summary>Stands in for a signed-in Plex watchlist: two titles the sample library doesn't have.</summary>
+    private sealed class SampleWatchlist : Lightcone.Host.Library.IOnlineWatchlist
+    {
+        public List<Lightcone.Host.Library.WatchlistEntry> List =
+        [
+            new("w1", "plex://movie/w1", "The Lighthouse Keeper's Daughter", Lightcone.Host.Library.MediaKind.Movie, 2026, "A keeper's daughter runs the lamp alone through the worst winter on record."),
+            new("w2", "plex://show/w2", "Static Season", Lightcone.Host.Library.MediaKind.Show, 2025, "A pirate radio crew broadcasts from a decommissioned ferry."),
+        ];
+
+        public bool Active => true;
+        public string Name => "Plex";
+        public IReadOnlyList<Lightcone.Host.Library.WatchlistEntry> Entries => List;
+
+        public void Set(string guid, bool on)
+        {
+            if (!on)
+            {
+                List.RemoveAll(e => e.Guid == guid);
+            }
+            Main.Instance.Host!.Library.NotifyChanged();
+        }
+    }
+
+    /// <summary>0.11.0: collection shelves, franchise / director collections, the watchlist page with titles not on the server.</summary>
+    private void AddRelease11Steps()
+    {
+        Step("v11-setup", () =>
+        {
+            var lib = Main.Instance.Host!.Library;
+            Main.Instance.ApplyLayout("auto");
+            lib.OnlineWatchlist = new SampleWatchlist();
+            var two = lib.Section(Lightcone.Host.Library.MediaKind.Movie).First(m => m.Title == "Glass Orbit II");
+            lib.SetWatchlist(two, true);
+            Main.Instance.SwitchTab("Home");
+        }, wait: 1.5, tab: "Home");
+        Step("v11-home-watchlist", () => FindFocusable(GetTree().Root, "Watchlist: see all")?.GrabFocus(), wait: 1.0, tab: "Home");
+        Step("v11-watchlist-page", () => Tap(JoyButton.A), wait: 1.2, expect: "Glass Orbit II");
+        Step("v11-watchlist-missing", () =>
+        {
+            FindFocusable(GetTree().Root, "Watchlist: show not on server")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.0, expect: "The Lighthouse");
+        Step("v11-watchlist-detail", () =>
+        {
+            FindFocusable(GetTree().Root, "The Lighthouse Keeper")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.2, expect: "On watchlist");
+        Step("v11-watchlist-detail-back", () => Tap(JoyButton.B), wait: 1.0);
+        Step("v11-watchlist-all", () =>
+        {
+            FindFocusable(GetTree().Root, "Watchlist: show all")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.0);
+        Step("v11-watchlist-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Home");
+        Step("v11-movies", () => Main.Instance.SwitchTab("Movies"), wait: 1.2, tab: "Movies");
+        Step("v11-shelves", () => Tap(JoyButton.X), wait: 1.2, tab: "Movies");
+        Step("v11-shelves-franchise", () => FindFocusable(GetTree().Root, "Glass Orbit\n")?.GrabFocus(), wait: 1.0, tab: "Movies");
+        Step("v11-franchise", () => Tap(JoyButton.A), wait: 1.2, expect: "Play next: Glass Orbit", tab: "Movies");
+        Step("v11-franchise-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        Step("v11-shelves-director", () => FindFocusable(GetTree().Root, "Directed by Tomas Reyes")?.GrabFocus(), wait: 1.0, tab: "Movies");
+        Step("v11-director", () => Tap(JoyButton.A), wait: 1.2, tab: "Movies");
+        Step("v11-director-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        Step("v11-all-movies", () => Tap(JoyButton.X), wait: 1.2, tab: "Movies");
+        Step("v11-series-detail", () =>
+        {
+            FindFocusable(GetTree().Root, "Glass Orbit II")?.GrabFocus();
+            Tap(JoyButton.A);
+        }, wait: 1.5, tab: "Movies");
+        Step("v11-series-row", () => FindFocusable(GetTree().Root, "Glass Orbit\n")?.GrabFocus(), wait: 1.0, tab: "Movies");
+        Step("v11-series-back", () => Tap(JoyButton.B), wait: 1.0, tab: "Movies");
+        // The same in Desktop mode.
+        Step("v11-desktop-shelves", () =>
+        {
+            Main.Instance.ApplyLayout("desktop");
+            Main.Instance.SwitchTab("Movies");
+        }, wait: 1.2, tab: "Movies");
+        Step("v11-desktop-shelves-on", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
+        Step("v11-desktop-collection", () => Click(FindFocusable(GetTree().Root, "Glass Orbit\n")), wait: 1.2, tab: "Movies");
+        Step("v11-desktop-collection-back", () => Key(Godot.Key.Escape), wait: 1.0, tab: "Movies");
+        Step("v11-desktop-shelves-off", () => Click(FindFocusable(GetTree().Root, "Show collections")), wait: 1.2, tab: "Movies");
+        Step("v11-desktop-home", () => Main.Instance.SwitchTab("Home"), wait: 1.2, tab: "Home");
+        Step("v11-desktop-watchlist", () => Click(FindFocusable(GetTree().Root, "Watchlist: see all")), wait: 1.2, expect: "Glass Orbit II");
+        Step("v11-desktop-watchlist-back", () =>
+        {
+            Key(Godot.Key.Escape);
+        }, wait: 1.0, tab: "Home");
+        Step("v11-done", () => Main.Instance.ApplyLayout("auto"), wait: 1.0);
     }
 
     /// <summary>0.10.0: the projector intro (held on screen for the shot) and the Lightcone theme.</summary>

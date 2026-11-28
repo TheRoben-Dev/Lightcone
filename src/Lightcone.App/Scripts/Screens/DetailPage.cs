@@ -194,7 +194,17 @@ public partial class DetailPage : Screen
         }
         meta.AddRange(_item.Genres);
         info.AddChild(UiTheme.Label(string.Join("  ·  ", meta), UiTheme.SmallSize + 2, UiTheme.Dim, wrap: true));
-        info.AddChild(UiTheme.Label("From " + _item.SourceName, UiTheme.SmallSize, UiTheme.Dim));
+        if (_item.NotInLibrary)
+        {
+            // On the Plex watchlist, but no server has it: nothing to play here.
+            info.AddChild(UiTheme.Label(UiTheme.Mono ? Loc.Upper("Not on your server") : "Not on your server", UiTheme.SmallSize, UiTheme.AccentText));
+            info.AddChild(UiTheme.Label($"It's on {_item.SourceName.Replace("Your ", "your ")}. It shows up to play once your server has it.",
+                UiTheme.SmallSize, UiTheme.Dim, wrap: true));
+        }
+        else
+        {
+            info.AddChild(UiTheme.Label("From " + _item.SourceName, UiTheme.SmallSize, UiTheme.Dim));
+        }
         if (Spoilers.Overview(_item) is { } o)
         {
             var ov = UiTheme.Label(o, UiTheme.FontSize - 2, UiTheme.Text, wrap: true);
@@ -219,7 +229,7 @@ public partial class DetailPage : Screen
         _seasons = _item.Kind == MediaKind.Show ? lib.Seasons(_item) : [];
         if (_item.Kind == MediaKind.Collection)
         {
-            BuildCollection(col, children, Act, buttons);
+            BuildCollection(col, info, children, Act, buttons);
             return;
         }
         if (_item.Playable)
@@ -273,7 +283,10 @@ public partial class DetailPage : Screen
         {
             var on = lib.OnWatchlist(_item);
             Act(on ? "✓  On watchlist" : "＋  Watchlist", ToggleWatchlist, $"{_item.Title}: {(on ? "remove from" : "add to")} watchlist");
-            Act("Collections…", PickCollection, $"{_item.Title}: collections");
+            if (!_item.NotInLibrary)
+            {
+                Act("Collections…", PickCollection, $"{_item.Title}: collections");
+            }
         }
         Focus.Row(buttons);
         _first = buttons.FirstOrDefault();
@@ -316,14 +329,10 @@ public partial class DetailPage : Screen
             _belowActions[buttons[0]] = rows[0].GetPath();
         }
         col.AddChild(_detailHost);
-        if (_details != null || _similar.Count > 0)
-        {
-            FillDetails();
-        }
-        else
-        {
-            LoadDetails();
-        }
+        // The series it's in shows straight away (from the library); cast, extras and similar
+        // titles come from the server, then the page fills them in.
+        FillDetails();
+        LoadDetails();
     }
 
     // ---- trivia ----
@@ -376,7 +385,7 @@ public partial class DetailPage : Screen
 
     // ---- cast, crew and extras ----
 
-    private bool HasDetails => _item.Kind is MediaKind.Movie or MediaKind.Show or MediaKind.Episode;
+    private bool HasDetails => _item.Kind is MediaKind.Movie or MediaKind.Show or MediaKind.Episode && !_item.NotInLibrary;
 
     private async void LoadDetails()
     {
@@ -478,6 +487,18 @@ public partial class DetailPage : Screen
             _detailHost.AddChild(row);
             _detailRows.Add(row);
         }
+        // The franchise or collection it belongs to: "In John Wick", the others in release order.
+        if (!_item.NotInLibrary && lib.SeriesWith(_item).FirstOrDefault() is { } series)
+        {
+            var others = lib.Children(series.Id).Where(m => m.Id != _item.Id).ToList();
+            if (others.Count > 0)
+            {
+                var row = new MediaRow(new HomeRow("series", $"In {series.Title}", others), lib, Desktop, MediaActions.Open, scale: 0.85f,
+                    seeAll: () => App.Push(new DetailPage(series)), seeAllDetail: series.Subtitle);
+                _detailHost.AddChild(row);
+                _detailRows.Add(row);
+            }
+        }
         if (_similar.Count > 0)
         {
             var row = new MediaRow(new HomeRow("similar", "More like this", _similar), lib, Desktop, MediaActions.Open, scale: 0.85f);
@@ -514,14 +535,45 @@ public partial class DetailPage : Screen
     }
 
     /// <summary>A collection: its titles as a poster grid, plus rename / delete for one made here.</summary>
-    private void BuildCollection(VBoxContainer col, IReadOnlyList<MediaItem> members, Action<string, Action, string> act, List<Control> buttons)
+    private void BuildCollection(VBoxContainer col, VBoxContainer info, IReadOnlyList<MediaItem> members, Action<string, Action, string> act, List<Control> buttons)
     {
         var lib = Host.Library;
-        var playable = members.Where(m => m.Playable).ToList();
-        if (playable.Count > 0)
+        // How far through it you are: movies count when watched, shows when every episode is.
+        if (members.Count > 0)
         {
-            var next = playable.FirstOrDefault(m => lib.PositionOf(m) != null) ?? playable.FirstOrDefault(m => !lib.IsWatched(m)) ?? playable[0];
-            act($"▶  {(lib.PositionOf(next) != null ? "Resume" : "Play")} {next.Title}", () => MediaActions.Play(next), $"{_item.Title}: play");
+            var seen = members.Count(m => m.Kind == MediaKind.Movie ? lib.IsWatched(m) : lib.Matches(m, WatchFilter.Watched));
+            var line = new HBoxContainer();
+            line.AddThemeConstantOverride("separation", 12);
+            var bar = new ProgressBar { MinValue = 0, MaxValue = members.Count, Value = seen, ShowPercentage = false, CustomMinimumSize = new Vector2(Desktop ? 160 : 200, 8) };
+            bar.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+            bar.AddThemeStyleboxOverride("background", UiTheme.Box(UiTheme.Line, 0, 4, UiTheme.Line));
+            bar.AddThemeStyleboxOverride("fill", UiTheme.Box(UiTheme.Accent, 0, 4, UiTheme.Accent));
+            line.AddChild(bar);
+            line.AddChild(UiTheme.Label(seen == members.Count ? $"All {members.Count} watched" : $"{seen} of {members.Count} watched", UiTheme.SmallSize + 1, UiTheme.Dim));
+            info.AddChild(line);
+            info.MoveChild(line, info.GetChildCount() - 2);  // above the buttons
+        }
+        // The first one not watched yet: a movie plays, a show plays its next episode.
+        var next = members.FirstOrDefault(m => m.Playable && lib.PositionOf(m) != null)
+            ?? members.FirstOrDefault(m => m.Kind == MediaKind.Movie ? m.Playable && !lib.IsWatched(m) : !lib.Matches(m, WatchFilter.Watched));
+        if (next != null)
+        {
+            var verb = lib.PositionOf(next) != null ? "Resume" : next.Kind == MediaKind.Show ? "Next up:" : "Play next:";
+            act($"▶  {verb} {next.Title}", () =>
+            {
+                if (next.Kind == MediaKind.Show)
+                {
+                    MediaActions.PlayContainer(next);
+                }
+                else
+                {
+                    MediaActions.Play(next);
+                }
+            }, $"{_item.Title}: play next unwatched");
+        }
+        else if (members.FirstOrDefault(m => m.Playable) is { } first)
+        {
+            act($"▶  Watch again: {first.Title}", () => MediaActions.Play(first, fromStart: true), $"{_item.Title}: play");
         }
         if (MediaLibrary.IsUserCollection(_item.Id))
         {
