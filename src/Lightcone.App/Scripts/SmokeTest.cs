@@ -127,6 +127,11 @@ public partial class SmokeTest : Node
             Tap(JoyButton.DpadDown);
             Tap(JoyButton.DpadRight);
         }, wait: 1.0, expect: "Lifts dialogue");
+        Step("player-options-media-volume", () =>
+        {
+            Tap(JoyButton.DpadDown);
+            Tap(JoyButton.DpadRight);
+        }, wait: 1.0, expect: "How loud everything plays");
         Step("player-tracks-back", () => Tap(JoyButton.B), wait: 1.0);
         // B stops video and goes back (position saving and Resume are covered by the unit tests:
         // the sample streams play in real time, and resume starts after 30 s).
